@@ -11,6 +11,8 @@ from torchvision.transforms import ToTensor
 from ultralytics.nn.tasks import *
 import cv2
 from ultralytics.models.yolo.detect import DetectionPredictor
+from utils import parse_my_detection_model
+
 
 width, height, channels = 640, 640, 3
 
@@ -27,17 +29,47 @@ image = image.unsqueeze(0)
 #print(20*"*")
 
 
-class MyDetectionModel(DetectionModel):
+class MyDetectionModel(BaseModel):
     def __init__(self, cfg='yolov8n.yaml', ch=3, nc=None, verbose=False):  # model, input channels, number of classes
         """Initialize the YOLOv8 detection model with the given config and parameters."""
 
-        self.first_forward = True
-        super().__init__(cfg=cfg,ch=ch,nc=None,verbose=verbose)
+        super().__init__()
+
+        self.first_forward = False
+        self.yaml = cfg if isinstance(cfg, dict) else yaml_model_load(cfg)  # cfg dict
+
+        # Define model
+        ch = self.yaml['ch'] = self.yaml.get('ch', ch)  # input channels
+        if nc and nc != self.yaml['nc']:
+            LOGGER.info(f"Overriding model.yaml nc={self.yaml['nc']} with nc={nc}")
+            self.yaml['nc'] = nc  # override YAML value
+        self.model, self.save = parse_my_detection_model(deepcopy(self.yaml), ch=ch, verbose=verbose)  # model, savelist
+        #self.model, self.save = parse_model(deepcopy(self.yaml), ch=ch, verbose=verbose)  # model, savelist
+        self.names = {i: f'{i}' for i in range(self.yaml['nc'])}  # default names dict
+        self.inplace = self.yaml.get('inplace', True)
+
+        # Build strides
+        m = self.model[-1]  # Detect()
+        if isinstance(m, (Detect, Segment, Pose)):
+            s = 256  # 2x min stride
+            m.inplace = self.inplace
+            #forward = lambda x: self.forward(x)[0] if isinstance(m, (Segment, Pose)) else self.forward(x)
+            #m.stride = torch.tensor([s / x.shape[-2] for x in forward(torch.zeros(1, ch, s, s))])  # forward
+            m.stride = torch.tensor([ 8., 16., 32.])
+            self.stride = m.stride
+            m.bias_init()  # only run once
+        else:
+            self.stride = torch.Tensor([32])  # default stride for i.e. RTDETR
+
+        # Init weights, biases
+        initialize_weights(self)
+        if verbose:
+            self.info()
+            LOGGER.info('')
 
         self.backbone = self.model[:10]
-        self.head = self.model[10:]
-
-
+        self.head_1 = self.model[10:23]
+        self.head_2 = self.model[23:]
 
     """
     method used to build the stride
@@ -53,42 +85,27 @@ class MyDetectionModel(DetectionModel):
     def _predict_once(self, x, profile=False, visualize=False):
 
         ## refer to _build_stride comment
+        ## will not enter here now debugging...
         if self.first_forward:
             return self._build_stride(x,profile,visualize)
 
         y, dt = [], []  # outputs
 
-
-        features = self._forward_backbone(x)
-        feature_1 = features[0:1]
-        feature_2 = features[1:2]
-
-        #feature_2 = self._forward_backbone(x[0])
-        print("feature 1 ",feature_1.shape)
-        print("feature 2 ",feature_2.shape)
-        cross_attention_f1 = self._cross_attention(feature_1,feature_2)
-        cross_attention_f2 =  self._cross_attention(feature_2,feature_1)
-
-
-        """
         for m in self.backbone:
-            print(m.f)
+            if m.f != -1:  # if not from previous layer
+                x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
+
+            x = m(x)  # run
+            y.append(x if m.i in self.save else None)  # save output
+
+        for m in self.head_1:
             if m.f != -1:  # if not from previous layer
                  x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
 
             x = m(x)  # run
             y.append(x if m.i in self.save else None)  # save output
 
-        """
-        """
-        for m in self.head:
-            if m.f != -1:  # if not from previous layer
-                 x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
 
-            x = m(x)  # run
-            y.append(x if m.i in self.save else None)  # save output
-
-        """
         return x
 
 
@@ -102,7 +119,18 @@ class MyDetectionModel(DetectionModel):
             earlier_layer_output.append(x if m.i in self.save else None)  # save output
         return x
 
+    def load_pretrained_weights(self,weights):
+        self.load(torch.load(weights))
 
+        """
+        for name_1, param_1 in self.head_1.named_parameters():
+            name_1_number = int(name_1.split('.')[0])
+            name_2_number = name_1_number + 13
+
+            name_2 = str(name_2_number) + "." + ".".join(name_1.split('.')[1:])
+            param_2 = self.head_2.state_dict()[name_2]
+
+        """
     """
     For each element in feature_1, we check how it interacts with each element in feature_2.
     This interaction is determined by the attention scores,
@@ -127,13 +155,13 @@ image2 = image2.unsqueeze(0)
 the_image = torch.cat([image,image2],dim=0)
 
 
-theModel = MyDetectionModel(cfg="yolo8m.yaml")
-theModel.load(torch.load('yolov8m.pt'))
-ret = theModel(the_image)
+theModel = MyDetectionModel(cfg="deneme.yaml")
+theModel.load_pretrained_weights('yolov8m.pt')
+#ret = theModel(the_image)
 
 #theModel.eval()
 #print(image.shape)
 
-#predictor = DetectionPredictor()
-#x = predictor(source=[image,image], model=theModel)
-#x[0].save_txt("res2.txt",True)
+predictor = DetectionPredictor()
+x = predictor(source=image, model=theModel)
+x[0].save_txt("res2.txt",True)
