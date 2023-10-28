@@ -23,6 +23,13 @@ image = image.astype(np.uint8)
 image = ToTensor()(image)
 image = image.unsqueeze(0)
 
+image2 = cv2.imread("image.jpeg")
+image2 = cv2.resize(image2, (640, 640))
+image2 = image2.astype(np.uint8)
+image2 = ToTensor()(image2)
+image2 = image2.unsqueeze(0)
+the_image = torch.cat([image,image2],dim=0)
+
 #model = YOLO('yolov8m.pt')
 #ret =model(image)
 #ret[0].save_txt("res.txt",True)
@@ -44,20 +51,25 @@ class MyDetectionModel(BaseModel):
             LOGGER.info(f"Overriding model.yaml nc={self.yaml['nc']} with nc={nc}")
             self.yaml['nc'] = nc  # override YAML value
         self.model, self.save = parse_my_detection_model(deepcopy(self.yaml), ch=ch, verbose=verbose)  # model, savelist
-        #self.model, self.save = parse_model(deepcopy(self.yaml), ch=ch, verbose=verbose)  # model, savelist
         self.names = {i: f'{i}' for i in range(self.yaml['nc'])}  # default names dict
         self.inplace = self.yaml.get('inplace', True)
 
         # Build strides
-        m = self.model[-1]  # Detect()
-        if isinstance(m, (Detect, Segment, Pose)):
+        first_head = self.model[22]  # Detect()
+        second_head = self.model[-1]  # Detect()
+        if isinstance(first_head, (Detect, Segment, Pose)) and isinstance(second_head, (Detect, Segment, Pose)):
             s = 256  # 2x min stride
-            m.inplace = self.inplace
+            first_head.inplace = self.inplace
+            second_head.inplace = self.inplace
+
             #forward = lambda x: self.forward(x)[0] if isinstance(m, (Segment, Pose)) else self.forward(x)
             #m.stride = torch.tensor([s / x.shape[-2] for x in forward(torch.zeros(1, ch, s, s))])  # forward
-            m.stride = torch.tensor([ 8., 16., 32.])
-            self.stride = m.stride
-            m.bias_init()  # only run once
+            first_head.stride = torch.tensor([ 8., 16., 32.])
+            second_head.stride = torch.tensor([ 8., 16., 32.])
+            self.stride = first_head.stride
+
+            first_head.bias_init()  # only run once
+            second_head.bias_init()  # only run once
         else:
             self.stride = torch.Tensor([32])  # default stride for i.e. RTDETR
 
@@ -67,9 +79,11 @@ class MyDetectionModel(BaseModel):
             self.info()
             LOGGER.info('')
 
-        self.backbone = self.model[:10]
         self.head_1 = self.model[10:23]
+        self.backbone = self.model[:10]
         self.head_2 = self.model[23:]
+
+
 
     """
     method used to build the stride
@@ -98,13 +112,21 @@ class MyDetectionModel(BaseModel):
             x = m(x)  # run
             y.append(x if m.i in self.save else None)  # save output
 
-        for m in self.head_1:
+        for m in self.head_2:
             if m.f != -1:  # if not from previous layer
-                 x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
+                if isinstance(m.f, int):
+                     x = y[m.f]
+                else:
+                    result = []
+                    for j in m.f:
+                        if j != -1:result.append(y[j-13] if j > 10 else y[j])
+                        else:result.append(x)
+
+                    x = result
+                    #x = [x if j == -1 else y[j] for j in m.f]  # from earlier layers
 
             x = m(x)  # run
             y.append(x if m.i in self.save else None)  # save output
-
 
         return x
 
@@ -120,17 +142,28 @@ class MyDetectionModel(BaseModel):
         return x
 
     def load_pretrained_weights(self,weights):
-        self.load(torch.load(weights))
+        #self.load(torch.load(weights))
+        weights = torch.load(weights)
 
-        """
-        for name_1, param_1 in self.head_1.named_parameters():
-            name_1_number = int(name_1.split('.')[0])
-            name_2_number = name_1_number + 13
+        ## LOAD HEAD 2 FROM HEAD 1 WEIGHTS
+        head_2_dict = {}
+        for name_1, param_1 in self.state_dict().items():
+            name_1_number = int(name_1.split('.')[1])
+            if name_1_number == 25:break
+            if (name_1_number >=12 ):
+                name_2_number = name_1_number + 13
+                name_2 =  "model." + str(name_2_number) + "." + ".".join(name_1.split('.')[2:])
+                head_2_dict[name_2] = param_1
 
-            name_2 = str(name_2_number) + "." + ".".join(name_1.split('.')[1:])
-            param_2 = self.head_2.state_dict()[name_2]
+        model = weights['model'] if isinstance(weights, dict) else weights  # torchvision models are not dicts
+        csd = model.float().state_dict()  # checkpoint state_dict as FP32
+        csd.update(head_2_dict)
+        csd = intersect_dicts(csd, self.state_dict())  # intersect
+        self.load_state_dict(csd, strict=False)  # load
 
-        """
+        LOGGER.info(f'Transferred {len(csd)}/{len(self.model.state_dict())} items from pretrained weights')
+
+
     """
     For each element in feature_1, we check how it interacts with each element in feature_2.
     This interaction is determined by the attention scores,
@@ -145,23 +178,9 @@ class MyDetectionModel(BaseModel):
         return attended_feature_2
 
 
-
-
-image2 = cv2.imread("image.jpeg")
-image2 = cv2.resize(image2, (640, 640))
-image2 = image2.astype(np.uint8)
-image2 = ToTensor()(image2)
-image2 = image2.unsqueeze(0)
-the_image = torch.cat([image,image2],dim=0)
-
-
 theModel = MyDetectionModel(cfg="deneme.yaml")
 theModel.load_pretrained_weights('yolov8m.pt')
-#ret = theModel(the_image)
-
-#theModel.eval()
-#print(image.shape)
 
 predictor = DetectionPredictor()
 x = predictor(source=image, model=theModel)
-x[0].save_txt("res2.txt",True)
+x[0].save_txt("res1.txt",True)
