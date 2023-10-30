@@ -2,6 +2,7 @@
 under development
 Uzun Baki
 """
+from numpy._typing import _128Bit
 import torch
 from ultralytics import YOLO
 import torch.nn as nn
@@ -105,41 +106,125 @@ class MyDetectionModel(BaseModel):
 
         y, dt = [], []  # outputs
 
+        if x.shape[0] == 1:
+
+            x,y = self._forward_backbone(x,y,head=self.head_1)
+
+            for m in self.backbone:
+                if m.f != -1:  # if not from previous layer
+                    x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
+
+                x = m(x)  # run
+                y.append(x if m.i in self.save else None)  # save output
+
+            for m in self.head_1:
+                if m.f != -1:  # if not from previous layer
+                    x= y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
+                x = m(x)  # run
+                y.append(x if m.i in self.save else None)  # save output
+            return x
+        else:
+
+            x_1 = x[0:1]
+            x_2 = x[1:]
+            #x_1 = x
+            for m in self.backbone:
+                if m.f != -1:  # if not from previous layer
+                    x_1 = y[m.f] if isinstance(m.f, int) else [x_1 if j == -1 else y[j] for j in m.f]  # from earlier layers
+
+                x_1 = m(x_1)  # run
+                y.append(x_1 if m.i in self.save else None)  # save output
+
+
+            for m in self.head_1:
+                if m.f != -1:  # if not from previous layer
+                    x_1= y[m.f] if isinstance(m.f, int) else [x_1 if j == -1 else y[j] for j in m.f]  # from earlier layers
+                x_1 = m(x_1)  # run
+                y.append(x_1 if m.i in self.save else None)  # save output
+
+            y = []
+            for m in self.backbone:
+                if m.f != -1:  # if not from previous layer
+                    x_2 = y[m.f] if isinstance(m.f, int) else [x_2 if j == -1 else y[j] for j in m.f]  # from earlier layers
+
+                x_2 = m(x_2)  # run
+                y.append(x_2 if m.i in self.save else None)  # save output
+
+            for m in self.head_2:
+                if m.f != -1:  # if not from previous layer
+                    if isinstance(m.f, int):
+                        x_2 = y[m.f]
+                    else:
+                        result = []
+                        for j in m.f:
+                            if j != -1:result.append(y[j-13] if j > 10 else y[j])
+                            else:result.append(x_2)
+
+                        x_2 = result
+
+
+                x_2 = m(x_2)  # run
+                y.append(x_2 if m.i in self.save else None)  # save output
+
+            x = []
+            x.append(torch.cat((x_1[0],x_2[0]),dim=0))
+            features = []  # Initialize the result list
+
+            for i in range(len(x_1[1])):
+                concatenated_element = torch.cat((x_1[1][i], x_2[1][i]), dim=0)
+                features.append(concatenated_element)
+            x.append(features)
+            return x
+
+
+    def _forward_backbone(self,x,y):
         for m in self.backbone:
             if m.f != -1:  # if not from previous layer
                 x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
 
             x = m(x)  # run
             y.append(x if m.i in self.save else None)  # save output
+        return x,y
 
-        for m in self.head_2:
-            if m.f != -1:  # if not from previous layer
-                if isinstance(m.f, int):
-                     x = y[m.f]
-                else:
-                    result = []
-                    for j in m.f:
-                        if j != -1:result.append(y[j-13] if j > 10 else y[j])
-                        else:result.append(x)
+    def _forward_head(self,x,y,head1=True):
+        if head1:
+            for m in self.head_1:
+                if m.f != -1:  # if not from previous layer
+                    x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
 
-                    x = result
-                    #x = [x if j == -1 else y[j] for j in m.f]  # from earlier layers
+                x = m(x)  # run
+                y.append(x if m.i in self.save else None)  # save output
+            return x,y
 
-            x = m(x)  # run
-            y.append(x if m.i in self.save else None)  # save output
+        else:
+            for m in self.head_2:
+                if m.f != -1:  # if not from previous layer
+                    if isinstance(m.f, int):
+                        x = y[m.f]
+                    else:
+                        x = []
+                        for j in m.f:
+                            if j != -1:x.append(y[j-13] if j > 10 else y[j])
+                            else:x.append(x)
 
-        return x
+                x = m(x)  # run
+                y.append(x if m.i in self.save else None)  # save output
+                return x,y
 
 
-    def _forward_backbone(self,x):
-        earlier_layer_output = []
-        for m in self.backbone:
-            if m.f != -1:  # if not from previous layer
-                x = earlier_layer_output[m.f] if isinstance(m.f, int) else [x if j == -1 else earlier_layer_output[j] for j in m.f]  # from earlier layers
 
-            x = m(x)  # run
-            earlier_layer_output.append(x if m.i in self.save else None)  # save output
-        return x
+    """
+    For each element in feature_1, we check how it interacts with each element in feature_2.
+    This interaction is determined by the attention scores,
+    The attention scores quantify the relationship or compatibility between each element in feature_1 and each element in feature_2
+    """
+    def _cross_attention(self,feature_1,feature_2):
+
+         scores = torch.matmul(feature_1, feature_2.transpose(-2, -1))  # Dot product
+         attention_weights = torch.nn.functional.softmax(scores, dim=-1)
+         attended_feature_2 = torch.matmul(attention_weights, feature_2)
+
+         return attended_feature_2
 
     def load_pretrained_weights(self,weights):
         #self.load(torch.load(weights))
@@ -164,23 +249,10 @@ class MyDetectionModel(BaseModel):
         LOGGER.info(f'Transferred {len(csd)}/{len(self.model.state_dict())} items from pretrained weights')
 
 
-    """
-    For each element in feature_1, we check how it interacts with each element in feature_2.
-    This interaction is determined by the attention scores,
-    The attention scores quantify the relationship or compatibility between each element in feature_1 and each element in feature_2
-    """
-    def _cross_attention(self,feature_1,feature_2):
-
-        scores = torch.matmul(feature_1, feature_2.transpose(-2, -1))  # Dot product
-        attention_weights = torch.nn.functional.softmax(scores, dim=-1)
-        attended_feature_2 = torch.matmul(attention_weights, feature_2)
-
-        return attended_feature_2
-
-
 theModel = MyDetectionModel(cfg="deneme.yaml")
 theModel.load_pretrained_weights('yolov8m.pt')
 
 predictor = DetectionPredictor()
-x = predictor(source=image, model=theModel)
+x = predictor(source=the_image, model=theModel)
 x[0].save_txt("res1.txt",True)
+x[1].save_txt("res1.txt",True)
