@@ -108,64 +108,24 @@ class MyDetectionModel(BaseModel):
 
         if x.shape[0] == 1:
 
-            x,y = self._forward_backbone(x,y,head=self.head_1)
+            x,y = self._forward_backbone(x,y)
+            x,y = self._forward_head(x,y,head1=True)
 
-            for m in self.backbone:
-                if m.f != -1:  # if not from previous layer
-                    x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
-
-                x = m(x)  # run
-                y.append(x if m.i in self.save else None)  # save output
-
-            for m in self.head_1:
-                if m.f != -1:  # if not from previous layer
-                    x= y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
-                x = m(x)  # run
-                y.append(x if m.i in self.save else None)  # save output
             return x
         else:
 
+            y_1 = []
+            y_2 = []
             x_1 = x[0:1]
             x_2 = x[1:]
-            #x_1 = x
-            for m in self.backbone:
-                if m.f != -1:  # if not from previous layer
-                    x_1 = y[m.f] if isinstance(m.f, int) else [x_1 if j == -1 else y[j] for j in m.f]  # from earlier layers
 
-                x_1 = m(x_1)  # run
-                y.append(x_1 if m.i in self.save else None)  # save output
+            x_1,y_1 = self._forward_backbone(x_1,y_1)
+            x_1,y_1 = self._forward_head(x_1,y_1,head1=True)
 
+            x_2,y_2 = self._forward_backbone(x_2,y_2)
+            x_2,y_2 = self._forward_head(x_2,y_2,head1=False)
 
-            for m in self.head_1:
-                if m.f != -1:  # if not from previous layer
-                    x_1= y[m.f] if isinstance(m.f, int) else [x_1 if j == -1 else y[j] for j in m.f]  # from earlier layers
-                x_1 = m(x_1)  # run
-                y.append(x_1 if m.i in self.save else None)  # save output
-
-            y = []
-            for m in self.backbone:
-                if m.f != -1:  # if not from previous layer
-                    x_2 = y[m.f] if isinstance(m.f, int) else [x_2 if j == -1 else y[j] for j in m.f]  # from earlier layers
-
-                x_2 = m(x_2)  # run
-                y.append(x_2 if m.i in self.save else None)  # save output
-
-            for m in self.head_2:
-                if m.f != -1:  # if not from previous layer
-                    if isinstance(m.f, int):
-                        x_2 = y[m.f]
-                    else:
-                        result = []
-                        for j in m.f:
-                            if j != -1:result.append(y[j-13] if j > 10 else y[j])
-                            else:result.append(x_2)
-
-                        x_2 = result
-
-
-                x_2 = m(x_2)  # run
-                y.append(x_2 if m.i in self.save else None)  # save output
-
+            # CAT THE RESULT IN BATCH DIM
             x = []
             x.append(torch.cat((x_1[0],x_2[0]),dim=0))
             features = []  # Initialize the result list
@@ -202,14 +162,20 @@ class MyDetectionModel(BaseModel):
                     if isinstance(m.f, int):
                         x = y[m.f]
                     else:
-                        x = []
+                        result = []
                         for j in m.f:
-                            if j != -1:x.append(y[j-13] if j > 10 else y[j])
-                            else:x.append(x)
+                            # -13, refers to the first layer of the second head which is at index 25 in the .yaml file
+                            # 25 - 13 = 12 = first layer of the first head  and as the list y contain values only for the backbone at this stage
+                            # we cannot get at index 25 it would throw an out of bound error.
+                            if j != -1:result.append(y[j-13] if j > 10 else y[j])
+                            else:result.append(x)
+
+                        x = result
+
 
                 x = m(x)  # run
                 y.append(x if m.i in self.save else None)  # save output
-                return x,y
+            return x,y
 
 
 
@@ -253,6 +219,6 @@ theModel = MyDetectionModel(cfg="deneme.yaml")
 theModel.load_pretrained_weights('yolov8m.pt')
 
 predictor = DetectionPredictor()
-x = predictor(source=the_image, model=theModel)
+x = predictor(source=the_image ,model=theModel)
 x[0].save_txt("res1.txt",True)
 x[1].save_txt("res1.txt",True)
