@@ -1,16 +1,9 @@
 import torch
-from ultralytics import YOLO
-import torch.nn as nn
-from ultralytics.nn.modules.head import Classify
-import numpy as np
-from torchvision.transforms import ToTensor
 from ultralytics.nn.tasks import *
-import cv2
-from ultralytics.models.yolo.detect import DetectionPredictor
 from utils import parse_my_detection_model
 
 
-class MyDetectionModel(BaseModel):
+class MyYolo(BaseModel):
     def __init__(self, cfg='yolov8n.yaml', ch=3, nc=None, verbose=False):  # model, input channels, number of classes
         """Initialize the YOLOv8 detection model with the given config and parameters."""
 
@@ -56,9 +49,6 @@ class MyDetectionModel(BaseModel):
         self.head_1 = self.model[10:23]
         self.backbone = self.model[:10]
         self.head_2 = self.model[23:]
-
-
-
     """
     method used to build the stride
     explanation: the super class call one forward with a lambda x to calculate the strides of the network
@@ -72,6 +62,7 @@ class MyDetectionModel(BaseModel):
 
     def _predict_once(self, x, profile=False, visualize=False):
 
+        stereo = True
         ## refer to _build_stride comment
         ## will not enter here now debugging...
         if self.first_forward:
@@ -79,35 +70,38 @@ class MyDetectionModel(BaseModel):
 
         y, dt = [], []  # outputs
 
-        if x.shape[0] == 1:
+        y_1 = []
+        y_2 = []
+        x_1 = x[:,0]
+        x_2 = x[:,1]
+        
+        if torch.isinf(x_2[0,0,0,0]):
+            stereo = False
+            x_2 = x_1.clone()
+            
+            
+        x_1,y_1 = self._forward_backbone(x_1,y_1)
+        x_2,y_2 = self._forward_backbone(x_2,y_2)
 
-            x,y = self._forward_backbone(x,y)
-            x,y = self._forward_head(x,y,head1=True)
+        attended_feature_2 =  self._cross_attention(x_1,x_2)
+        attended_feature_1 =  self._cross_attention(x_2,x_1)
 
-            return x
-        else:
+        x_1,y_1 = self._forward_head(attended_feature_1,y_1,head1=True)
+        x_2,y_2 = self._forward_head(attended_feature_2,y_2,head1=False)
 
-            y_1 = []
-            y_2 = []
-            x_1 = x[0:1]
-            x_2 = x[1:]
+        data = {'x_1':x_1,'x_2':x_2,'stereo':stereo}
+        """
+        # CAT THE RESULT IN BATCH DIM
+        x = []
+        x.append(torch.cat((x_1[0],x_2[0]),dim=0))
+        features = []  # Initialize the result list
 
-            x_1,y_1 = self._forward_backbone(x_1,y_1)
-            x_1,y_1 = self._forward_head(x_1,y_1,head1=True)
-
-            x_2,y_2 = self._forward_backbone(x_2,y_2)
-            x_2,y_2 = self._forward_head(x_2,y_2,head1=False)
-
-            # CAT THE RESULT IN BATCH DIM
-            x = []
-            x.append(torch.cat((x_1[0],x_2[0]),dim=0))
-            features = []  # Initialize the result list
-
-            for i in range(len(x_1[1])):
-                concatenated_element = torch.cat((x_1[1][i], x_2[1][i]), dim=0)
-                features.append(concatenated_element)
-            x.append(features)
-            return x
+        for i in range(len(x_1[1])):
+            concatenated_element = torch.cat((x_1[1][i], x_2[1][i]), dim=0)
+            features.append(concatenated_element)
+        x.append(features)
+        """
+        return data
 
 
     def _forward_backbone(self,x,y):
