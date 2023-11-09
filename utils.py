@@ -8,6 +8,28 @@ from ultralytics.nn.modules import (AIFI, C1, C2, C3, C3TR, SPP, SPPF, Bottlenec
                                     RTDETRDecoder, Segment)
 from ultralytics.utils import LOGGER, colorstr
 from ultralytics.utils.torch_utils import (make_divisible)
+import numpy as np 
+from PIL import Image
+
+BASE_LABEL_FILE_PATH = "/share/projects/cicero/objdet/dataset/CICERO_stereo/train_label/1_Varengeville_sur_Mer/"
+def image_to_label(img_file,patch1=True):
+    
+    img_file = img_file.split("/")
+    patch_name = "patches_cm1_txt" if patch1 else "patches_cm2_txt"
+    
+    # tiles_201802171130571_13440_09920.png -> tiles_201802171130571_13440_09920.txt
+    img_file[-1] = img_file[-1].replace('.png', '.txt') 
+
+    label_path = BASE_LABEL_FILE_PATH + "/" + img_file[8] +  "/patches_cm_indiv_stereo/" + patch_name + "/" + img_file[-1]
+    return label_path
+
+
+def load_image(file_path):
+    ## 4 band but were are taking only the rgb band for now 
+    try:
+        return np.array(Image.open(file_path))
+    except:
+        print("Error couldn't open the file : ",file_path)
 
 
 def parse_my_detection_model(d, ch, verbose=True):  # model_dict, input_channels(3)
