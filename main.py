@@ -27,7 +27,7 @@ train_config = {
     "mode":"train",
 }
 
-hyper_parameter = {  
+hyper_parameter = {
     "lr0": 0.00001,  # (float) initial learning rate (i.e. SGD=1E-2, Adam=1E-3)
     "lrf": 0.01,  # (float) final learning rate (lr0 * lrf)
     "momentum": 0.937,  # (float) SGD momentum/Adam beta1
@@ -48,14 +48,14 @@ validation_config = {
 
 hyp = HypParameters(hyper_parameter)
 
-## model def 
+## model def
 model = MyYolo(cfg=model_config["arch"])
 model.load_pretrained_weights(model_config["checkpoint"])
 model.args = hyp
 
 
 model.to(device)
-## dataset def 
+## dataset def
 train_dataset = CliffDataset(mode=train_config["mode"])
 train_loader =  DataLoader(train_dataset, batch_size=train_config["batch_size"], shuffle=train_config["shuffle"])
 
@@ -91,8 +91,8 @@ for epoch in range(train_config['epoch']):
 
             loss, loss_items  = criterion_head1(features["x_1"],patch_1_annotation)
             print("LOSS = ",loss)
-        
-    
+
+
         optimizer.zero_grad()
         scaler.scale(loss).backward()
         scaler.unscale_(optimizer)

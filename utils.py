@@ -8,20 +8,20 @@ from ultralytics.nn.modules import (AIFI, C1, C2, C3, C3TR, SPP, SPPF, Bottlenec
                                     RTDETRDecoder, Segment)
 from ultralytics.utils import LOGGER, colorstr
 from ultralytics.utils.torch_utils import (make_divisible)
-import numpy as np 
+import numpy as np
 from PIL import Image
 
 BASE_LABEL_FILE_PATH = "/share/projects/cicero/objdet/dataset/CICERO_stereo/train_label/1_Varengeville_sur_Mer/"
 def image_to_label_path(img_file,patch1=True):
-    
+
     img_file = img_file.split("/")
     patch_name = "patches_cm1_txt" if patch1 else "patches_cm2_txt"
-    
+
     # tiles_201802171130571_13440_09920.png -> tiles_201802171130571_13440_09920.txt
-    img_file[-1] = img_file[-1].replace('.png', '.txt') 
+    img_file[-1] = img_file[-1].replace('.png', '.txt')
 
     label_path = BASE_LABEL_FILE_PATH + img_file[9] +  "/patches_cm_indiv_stereo/" + patch_name + "/" + img_file[-1]
-    
+
     return label_path
 
 
@@ -47,11 +47,11 @@ def get_label_info(path,index):
         cls = np.array(cls)
         batch_idx = np.array(batch_idx)
 
-      
+
     return {"bboxes":bboxes,"cls":cls,"batch_idx":batch_idx}
 
 def load_image(file_path):
-    ## 4 band but were are taking only the rgb band for now 
+    ## 4 band but were are taking only the rgb band for now
     try:
         return np.array(Image.open(file_path))
     except:
