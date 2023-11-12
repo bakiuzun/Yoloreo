@@ -1,7 +1,7 @@
 from ultralytics.cfg import get_cfg
 import torch
 from torch.cuda import amp
-import math 
+import math
 import time
 from torch.utils.data import DataLoader
 import numpy as np
@@ -15,11 +15,11 @@ from ultralytics.utils.checks import check_amp
 
 class MyTrainer():
     def __init__(self,cfg,model,dataset,overrides=None):
-        
+
         self.args = get_cfg(cfg, overrides)
-        
+
         self.device  = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        
+
         self.validator = None
 
         self.model = model
@@ -30,7 +30,7 @@ class MyTrainer():
 
 
         self.criterion = v8DetectionLoss(self.model)
-        
+
         self.lf = None
 
         self.scheduler = None
@@ -48,7 +48,7 @@ class MyTrainer():
 
     def train(self):
         """Allow device='', device=None on Multi-GPU systems to default to device=0."""
-        
+
         world_size = 1 if  self.device == "cuda" else 0
         self._setup_train(world_size)
         self._do_train(world_size)
@@ -63,11 +63,11 @@ class MyTrainer():
         self.amp = torch.tensor(check_amp(self.model), device=self.device)
         self.amp = bool(self.amp)  # as boolean
         self.scaler = amp.GradScaler(enabled=self.amp)
-        
-        
+
+
         # Dataloaders
         batch_size = self.batch_size // max(world_size, 1)
-        
+
         self.train_loader =  DataLoader(self.dataset, batch_size=self.batch_size, shuffle=True)
         """
         if RANK in (-1, 0):
@@ -78,7 +78,7 @@ class MyTrainer():
             self.ema = ModelEMA(self.model)
 
         """
-            
+
         # Optimizer
         self.accumulate = max(round(self.args.nbs / self.batch_size), 1)  # accumulate loss before optimizing
         weight_decay = self.args.weight_decay * self.batch_size * self.accumulate / self.args.nbs  # scale weight_decay
@@ -99,10 +99,10 @@ class MyTrainer():
         self.stopper, self.stop = EarlyStopping(patience=self.args.patience), False
         #self.resume_training(ckpt)
         self.scheduler.last_epoch = self.start_epoch - 1  # do not move
-    
+
 
     def _do_train(self,world_size):
-        
+
         nb = len(self.train_loader)  # number of batches
         nw = max(round(self.args.warmup_epochs * nb), 100) if self.args.warmup_epochs > 0 else -1  # warmup iterations
         last_opt_step = -1
@@ -115,9 +115,9 @@ class MyTrainer():
         epoch = self.epochs  # predefine for resume fully trained model edge cases
         for epoch in range(self.start_epoch, self.epochs):
             self.epoch = epoch
-            
+
             self.model.train()
-            
+
             pbar = enumerate(self.train_loader)
 
             #pbar = TQDM(enumerate(self.train_loader), total=nb)
@@ -139,8 +139,8 @@ class MyTrainer():
 
                 # Forward
                 with torch.cuda.amp.autocast(self.amp):
-                    features = self.model(batch["img"].to(self.device)   )
-                    
+                    features = self.model(batch["img"].to(self.device))
+
                     patch_1_annotation,patch_2_annotation = self.dataset.retrieve_annotation(batch,self.device)
                     batch['cls'] = patch_1_annotation['cls']
                     self.loss, self.loss_items = self.criterion(features["x_1"],patch_1_annotation)
@@ -159,16 +159,16 @@ class MyTrainer():
                 mem = f'{torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0:.3g}G'  # (GB)
                 loss_len = self.tloss.shape[0] if len(self.tloss.size()) else 1
                 losses = self.tloss if loss_len > 1 else torch.unsqueeze(self.tloss, 0)
-                
+
 
                 print("INFO | ",(('%11s' * 2 + '%11.4g' * (2 + loss_len)) %
                         (f'{epoch + 1}/{self.epochs}', mem, *losses, batch['cls'].shape[0], batch['img'].shape[-1])))
-                
+
 
                 #        ('%11s' * 2 + '%11.4g' * (2 + loss_len)) %
                 #        (f'{epoch + 1}/{self.epochs}', mem, *losses, batch['cls'].shape[0], batch['img'].shape[-1]))
-                
-                    
+
+
 
 
             self.lr = {f'lr/pg{ir}': x['lr'] for ir, x in enumerate(self.optimizer.param_groups)}  # for loggers
@@ -176,11 +176,11 @@ class MyTrainer():
             with warnings.catch_warnings():
                 warnings.simplefilter('ignore')  # suppress 'Detected lr_scheduler.step() before optimizer.step()'
                 self.scheduler.step()
-            
-         
+
+
             torch.cuda.empty_cache()  # clears GPU vRAM at end of epoch, can help with out of memory errors
 
-          
+
         torch.cuda.empty_cache()
 
     def optimizer_step(self):
@@ -190,11 +190,11 @@ class MyTrainer():
         self.scaler.step(self.optimizer)
         self.scaler.update()
         self.optimizer.zero_grad()
-        
+
         #if self.ema:
         #    self.ema.update(self.model)
 
-        
+
 
 
     def build_optimizer(self, model, name='auto', lr=0.001, momentum=0.9, decay=1e-5, iterations=1e5):
@@ -221,7 +221,7 @@ class MyTrainer():
         if name == 'auto':
             #nc = getattr(model, 'nc', 10)  # number of classes
             nc = 1
-            
+
             lr_fit = round(0.002 * 5 / (4 + nc), 6)  # lr0 fit equation to 6 decimal places
             name, lr, momentum = ('SGD', 0.01, 0.9) if iterations > 10000 else ('AdamW', lr_fit, 0.9)
             self.args.warmup_bias_lr = 0.0  # no higher than 0.01 for Adam
@@ -250,6 +250,5 @@ class MyTrainer():
 
         optimizer.add_param_group({'params': g[0], 'weight_decay': decay})  # add g0 with weight_decay
         optimizer.add_param_group({'params': g[1], 'weight_decay': 0.0})  # add g1 (BatchNorm2d weights)
-       
-        return optimizer
 
+        return optimizer
