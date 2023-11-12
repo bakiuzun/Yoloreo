@@ -46,7 +46,7 @@ class MyYolo(BaseModel):
             self.info()
             LOGGER.info('')
 
-        
+
         self.head_1 = self.model[10:23]
         self.backbone = self.model[:10]
         self.head_2 = self.model[23:]
@@ -74,7 +74,7 @@ class MyYolo(BaseModel):
         y_2 = []
         x_1 = x[:,0]
         x_2 = x[:,1]
-            
+
         x_1,y_1 = self._forward_backbone(x_1,y_1)
         #x_2,y_2 = self._forward_backbone(x_2,y_2)
 
@@ -85,7 +85,7 @@ class MyYolo(BaseModel):
         #x_2,y_2 = self._forward_head(attended_feature_2,y_2,head1=False)
 
         data = {'x_1':x_1,'x_2':x_2}
-        
+
         """
         # CAT THE RESULT IN BATCH DIM
         x = []

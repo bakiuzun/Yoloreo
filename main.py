@@ -22,7 +22,7 @@ model_config = {
 }
 
 
-hyper_parameter = {  
+hyper_parameter = {
     "lr0": 0.1,  # (float) initial learning rate (i.e. SGD=1E-2, Adam=1E-3)
     "lrf": 0.01,  # (float) final learning rate (lr0 * lrf)
     "momentum": 0.937,  # (float) SGD momentum/Adam beta1
@@ -38,7 +38,7 @@ hyper_parameter = {
 
 hyp = HypParameters(hyper_parameter)
 
-## model def 
+## model def
 model = MyYolo(cfg=model_config["arch"])
 model.load_pretrained_weights(model_config["checkpoint"])
 model.args = hyp
@@ -46,7 +46,7 @@ model.to(device)
 
 
 criterion = v8DetectionLoss(model)
-## dataset def 
+## dataset def
 train_dataset = CliffDataset(mode="train")
 train_loader =  DataLoader(train_dataset, batch_size=5, shuffle=True)
 trainer = MyTrainer(cfg="cfg.yaml",model=model,dataset=train_dataset)
@@ -69,13 +69,13 @@ pbar = tqdm(train_loader)
 
 
 for idx, sample in enumerate(pbar):
-        
+
     features = model(sample["img"].to(device))
     patch_1_annotation,patch_2_annotation = train_dataset.retrieve_annotation(sample,device)
 
     loss, loss_items  = criterion(features["x_1"],patch_1_annotation)
     print("LOSS = ",loss)
     break
-    
+
 
 """
