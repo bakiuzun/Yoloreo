@@ -46,6 +46,7 @@ class MyYolo(BaseModel):
             self.info()
             LOGGER.info('')
 
+        
         self.head_1 = self.model[10:23]
         self.backbone = self.model[:10]
         self.head_2 = self.model[23:]
@@ -62,7 +63,6 @@ class MyYolo(BaseModel):
 
     def _predict_once(self, x, profile=False, visualize=False):
 
-        stereo = True
         ## refer to _build_stride comment
         ## will not enter here now debugging...
         if self.first_forward:
@@ -74,22 +74,18 @@ class MyYolo(BaseModel):
         y_2 = []
         x_1 = x[:,0]
         x_2 = x[:,1]
-        
-        if torch.isinf(x_2[0,0,0,0]):
-            stereo = False
-            x_2 = x_1.clone()
-            
             
         x_1,y_1 = self._forward_backbone(x_1,y_1)
-        x_2,y_2 = self._forward_backbone(x_2,y_2)
+        #x_2,y_2 = self._forward_backbone(x_2,y_2)
 
-        attended_feature_2 =  self._cross_attention(x_1,x_2)
-        attended_feature_1 =  self._cross_attention(x_2,x_1)
+        #attended_feature_2 = self._cross_attention(x_1,x_2)
+        #attended_feature_1 = self._cross_attention(x_2,x_1)
 
-        x_1,y_1 = self._forward_head(attended_feature_1,y_1,head1=True)
-        x_2,y_2 = self._forward_head(attended_feature_2,y_2,head1=False)
+        x_1,y_1 = self._forward_head(x_1,y_1,head1=True)
+        #x_2,y_2 = self._forward_head(attended_feature_2,y_2,head1=False)
 
-        data = {'x_1':x_1,'x_2':x_2,'stereo':stereo}
+        data = {'x_1':x_1,'x_2':x_2}
+        
         """
         # CAT THE RESULT IN BATCH DIM
         x = []
