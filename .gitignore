@@ -1,3 +1,7 @@
 pyrightconfig.json
 .DS_STORE
 __pycache__
+after_use.py
+create_train_test_valid_split.py
+bash.sh
+/csv
