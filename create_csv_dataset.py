@@ -1,6 +1,6 @@
 import os
 import csv
-
+from utils import image_to_label_path
 
 BASE_IMAGE_FILE_PATH = '/share/projects/cicero/objdet/dataset/CICERO_stereo/images/1_Varengeville_sur_Mer'
 BASE_LABEL_FILE_PATH = "/share/projects/cicero/objdet/dataset/CICERO_stereo/train_label/1_Varengeville_sur_Mer/"
@@ -21,13 +21,13 @@ def write_to_csv(mode,dir_name,ratio_without_label=0.1):
         for file in txt_files:
 
             patch_1_file = os.path.join(patch_dir,file)
-            label_1_file =  image_to_label(patch_1_file,patch1=True)
+            label_1_file =  image_to_label_path(patch_1_file,patch1=True)
             this_file_contain_object = label_contain_object(label_1_file)
 
             if stereo:
                 # get the image and label file of the second patch
                 second_file_path = get_second_patch_file_path(dir_name,file,patch_dir)
-                label_2_file =  image_to_label(second_file_path,patch1=False)
+                label_2_file =  image_to_label_path(second_file_path,patch1=False)
                 this_second_file_contain_object = label_contain_object(label_2_file)
 
 
@@ -50,16 +50,7 @@ def write_to_csv(mode,dir_name,ratio_without_label=0.1):
 
 
 
-def image_to_label(img_file,patch1=True):
-    img_file = img_file.split("/")
-    patch_name = "patches_cm1_txt" if patch1 else "patches_cm2_txt"
 
-    # tiles_201802171130571_13440_09920.png -> tiles_201802171130571_13440_09920.txt
-    img_file[-1] = img_file[-1].replace('.png', '.txt')
-
-    label_path = BASE_LABEL_FILE_PATH + img_file[9] +  "/patches_cm_indiv_stereo/" + patch_name + "/" + img_file[-1]
-
-    return label_path
 
 
 def label_contain_object(label_file):
