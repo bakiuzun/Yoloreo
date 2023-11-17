@@ -7,6 +7,14 @@ from utils import (load_image,image_to_label_path,get_label_info)
 import copy
 
 
+## MIN MAX CALCULATED WITHOUT THE 4th BAND
+MAX_MIN = {
+    "train_max":24377,
+    "train_min":0
+}
+
+
+
 class CliffDataset(Dataset):
     def __init__(self,mode="train"):
         self.mode = mode
@@ -27,11 +35,17 @@ class CliffDataset(Dataset):
         im_files_patch1 = patch1
         im_files_patch2 = patch1 if stereo == False else patch2
 
-        image_patch_1 = load_image(patch1)[:,:,:3] / .255
+        image_patch_1 = load_image(patch1)[:,:,:3]
+        image_patch_1 = (image_patch_1 - MAX_MIN[f"{self.mode}_min"]) / (MAX_MIN[f"{self.mode}_max"] - MAX_MIN[f"{self.mode}_min"])
+        if np.max(image_patch_1) > 1 or np.min(image_patch_1) < 0:
+            raise ValueError("MAX MIN SHOULD BE BETWEEN 0-1, patch1")
         image_patch_1 = torch.tensor(image_patch_1).float().permute(2, 0, 1)
 
         if stereo:
-            image_patch_2 = load_image(patch2)[:,:,:3] / .255
+            image_patch_2 = load_image(patch2)[:,:,:3]
+            image_patch_2 = (image_patch_2 - MAX_MIN[f"{self.mode}_min"]) / (MAX_MIN[f"{self.mode}_max"] - MAX_MIN[f"{self.mode}_min"])
+            if np.max(image_patch_2) > 1 or np.min(image_patch_2) < 0:
+                raise ValueError("MAX MIN SHOULD BE BETWEEN 0-1, patch2")
             image_patch_2 = torch.tensor(image_patch_2).float().permute(2, 0, 1)
         else:
             image_patch_2 = copy.deepcopy(image_patch_1)

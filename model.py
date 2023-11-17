@@ -68,7 +68,11 @@ class MyYolo(BaseModel):
         if self.first_forward:
             return self._build_stride(x,profile,visualize)
 
-        y, dt = [], []  # outputs
+        if len(x) == 1:
+            y_1 = []
+            x_1,y_1 = self._forward_backbone(x,y_1)
+            x_1,y_1 = self._forward_head(x_1,y_1,head1=True)
+            return x_1
 
         y_1 = []
         y_2 = []
@@ -86,17 +90,7 @@ class MyYolo(BaseModel):
 
         data = {'x_1':x_1,'x_2':x_2}
 
-        """
-        # CAT THE RESULT IN BATCH DIM
-        x = []
-        x.append(torch.cat((x_1[0],x_2[0]),dim=0))
-        features = []  # Initialize the result list
 
-        for i in range(len(x_1[1])):
-            concatenated_element = torch.cat((x_1[1][i], x_2[1][i]), dim=0)
-            features.append(concatenated_element)
-        x.append(features)
-        """
         return data
 
 
@@ -160,6 +154,7 @@ class MyYolo(BaseModel):
         weights = torch.load(weights)
 
         ## LOAD HEAD 2 FROM HEAD 1 WEIGHTS
+
         head_2_dict = {}
         for name_1, param_1 in self.state_dict().items():
             name_1_number = int(name_1.split('.')[1])
@@ -172,9 +167,10 @@ class MyYolo(BaseModel):
         # the weights that we got from the parameter will contain yolo8 pre-trained on coco dataset
         # we copy the weight of the first head to the second head
         model = weights['model'] if isinstance(weights, dict) else weights  # torchvision models are not dicts
+
         csd = model.float().state_dict()  # checkpoint state_dict as FP32
         csd.update(head_2_dict)
         csd = intersect_dicts(csd, self.state_dict())  # intersect
         self.load_state_dict(csd, strict=False)  # load
 
-        LOGGER.info(f'Transferred {len(csd)}/{len(self.model.state_dict())} items from pretrained weights')
+        LOGGER.info(f'Transferred {len(csd)}/{len(self.state_dict())} items from pretrained weights')

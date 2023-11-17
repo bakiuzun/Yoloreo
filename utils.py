@@ -1,7 +1,7 @@
 import contextlib
 import torch
 import torch.nn as nn
-
+import cv2
 from ultralytics.nn.modules import (AIFI, C1, C2, C3, C3TR, SPP, SPPF, Bottleneck, BottleneckCSP, C2f, C3Ghost, C3x,
                                     Classify, Concat, Conv, Conv2, ConvTranspose, Detect, DWConv, DWConvTranspose2d,
                                     Focus, GhostBottleneck, GhostConv, HGBlock, HGStem, Pose, RepC3,
@@ -53,7 +53,8 @@ def get_label_info(path,index):
 def load_image(file_path):
     ## 4 band but were are taking only the rgb band for now
     try:
-        return np.array(Image.open(file_path))
+        #return np.array(Image.open(file_path))
+        return np.array(cv2.imread(file_path, cv2.IMREAD_UNCHANGED))
     except:
         print("Error couldn't open the file : ",file_path)
 

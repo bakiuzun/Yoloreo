@@ -2,16 +2,21 @@ from ultralytics.cfg import get_cfg
 import torch
 from torch.cuda import amp
 import math
-import time
 from torch.utils.data import DataLoader
 import numpy as np
 from torch import nn, optim
 from torch.cuda import amp
 from ultralytics.utils.loss import v8DetectionLoss
 from ultralytics.cfg import get_cfg
-from ultralytics.utils.torch_utils import (EarlyStopping, one_cycle)
+from ultralytics.utils.torch_utils import (EarlyStopping, one_cycle,de_parallel)
 import warnings
+from torchvision.transforms import ToTensor
 from ultralytics.utils.checks import check_amp
+from ultralytics.models.yolo.detect import DetectionPredictor
+import warnings
+from copy import deepcopy
+from datetime import datetime
+
 
 class MyTrainer():
     def __init__(self,cfg,model,dataset,overrides=None):
@@ -23,13 +28,15 @@ class MyTrainer():
         self.validator = None
 
         self.model = model
+        self.model.to(self.device)
         self.model.args = self.args
 
         self.dataset = dataset
         self.metrics = None
 
-
-        self.criterion = v8DetectionLoss(self.model)
+        ## criterion init
+        self.criterion_head_1 = v8DetectionLoss(self.model)
+        self.criterion_head_2 = v8DetectionLoss(self.model)
 
         self.lf = None
 
@@ -68,22 +75,23 @@ class MyTrainer():
         # Dataloaders
         batch_size = self.batch_size // max(world_size, 1)
 
-        self.train_loader =  DataLoader(self.dataset, batch_size=self.batch_size, shuffle=True)
+        self.train_loader =  DataLoader(self.dataset, batch_size=self.batch_size, shuffle=False)
         """
         if RANK in (-1, 0):
             self.test_loader = self.get_dataloader(self.testset, batch_size=batch_size * 2, rank=-1, mode='val')
             self.validator = self.get_validator()
             metric_keys = self.validator.metrics.keys + self.label_loss_items(prefix='val')
             self.metrics = dict(zip(metric_keys, [0] * len(metric_keys)))
-            self.ema = ModelEMA(self.model)
+            #self.ema = ModelEMA(self.model)
 
         """
 
         # Optimizer
         self.accumulate = max(round(self.args.nbs / self.batch_size), 1)  # accumulate loss before optimizing
         weight_decay = self.args.weight_decay * self.batch_size * self.accumulate / self.args.nbs  # scale weight_decay
+        print("TRAIN_LOADER_DATASET = ",len(self.train_loader.dataset))
         iterations = math.ceil(len(self.train_loader.dataset) / max(self.batch_size, self.args.nbs)) * self.epochs
-        print("SELF ITERATION = ",iterations)
+
         self.optimizer = self.build_optimizer(model=self.model,
                                               name=self.args.optimizer,
                                               lr=self.args.lr0,
@@ -95,6 +103,7 @@ class MyTrainer():
             self.lf = one_cycle(1, self.args.lrf, self.epochs)  # cosine 1->hyp['lrf']
         else:
             self.lf = lambda x: (1 - x / self.epochs) * (1.0 - self.args.lrf) + self.args.lrf  # linear
+
         self.scheduler = optim.lr_scheduler.LambdaLR(self.optimizer, lr_lambda=self.lf)
         self.stopper, self.stop = EarlyStopping(patience=self.args.patience), False
         #self.resume_training(ckpt)
@@ -103,24 +112,18 @@ class MyTrainer():
 
     def _do_train(self,world_size):
 
+        predictor = DetectionPredictor()
         nb = len(self.train_loader)  # number of batches
         nw = max(round(self.args.warmup_epochs * nb), 100) if self.args.warmup_epochs > 0 else -1  # warmup iterations
         last_opt_step = -1
-        """
-        if self.args.close_mosaic:
-            base_idx = (self.epochs - self.args.close_mosaic) * nb
-            self.plot_idx.extend([base_idx, base_idx + 1, base_idx + 2])
 
-        """
         epoch = self.epochs  # predefine for resume fully trained model edge cases
         for epoch in range(self.start_epoch, self.epochs):
+
             self.epoch = epoch
-
             self.model.train()
-
             pbar = enumerate(self.train_loader)
 
-            #pbar = TQDM(enumerate(self.train_loader), total=nb)
             self.tloss = None
             self.optimizer.zero_grad()
             for i, batch in pbar:
@@ -143,12 +146,15 @@ class MyTrainer():
 
                     patch_1_annotation,patch_2_annotation = self.dataset.retrieve_annotation(batch,self.device)
                     batch['cls'] = patch_1_annotation['cls']
-                    self.loss, self.loss_items = self.criterion(features["x_1"],patch_1_annotation)
-                    self.tloss = (self.tloss * i + self.loss_items) / (i + 1) if self.tloss is not None \
-                        else self.loss_items
+
+                    self.loss_head_1, self.loss_items_head_1 = self.criterion_head_1(features["x_1"],patch_1_annotation)
+                    #self.loss_head_2, self.loss_items_head_2 = self.criterion_head_2(features["x_2"],patch_2_annotation)
+
+                    self.tloss = (self.tloss * i + self.loss_items_head_1) / (i + 1) if self.tloss is not None \
+                        else self.loss_items_head_1
 
                 # Backward
-                self.scaler.scale(self.loss).backward()
+                self.scaler.scale(self.loss_head_1).backward()
 
                 # Optimize - https://pytorch.org/docs/master/notes/amp_examples.html
                 if ni - last_opt_step >= self.accumulate:
@@ -161,15 +167,8 @@ class MyTrainer():
                 losses = self.tloss if loss_len > 1 else torch.unsqueeze(self.tloss, 0)
 
 
-                print("INFO | ",(('%11s' * 2 + '%11.4g' * (2 + loss_len)) %
+                print("INFO |",(('%11s' * 2 + '%11.4g' * (2 + loss_len)) %
                         (f'{epoch + 1}/{self.epochs}', mem, *losses, batch['cls'].shape[0], batch['img'].shape[-1])))
-
-
-                #        ('%11s' * 2 + '%11.4g' * (2 + loss_len)) %
-                #        (f'{epoch + 1}/{self.epochs}', mem, *losses, batch['cls'].shape[0], batch['img'].shape[-1]))
-
-
-
 
             self.lr = {f'lr/pg{ir}': x['lr'] for ir, x in enumerate(self.optimizer.param_groups)}  # for loggers
 
@@ -180,8 +179,15 @@ class MyTrainer():
 
             torch.cuda.empty_cache()  # clears GPU vRAM at end of epoch, can help with out of memory errors
 
+            if self.epoch % 20 == 0:
+                self.save_model()
+
 
         torch.cuda.empty_cache()
+        print("SAVE MODEL ")
+        #model_path = 'my_model.pth'
+
+        #torch.save(self.model.state_dict(), model_path)
 
     def optimizer_step(self):
         """Perform a single step of the training optimizer with gradient clipping and EMA update."""
@@ -193,6 +199,35 @@ class MyTrainer():
 
         #if self.ema:
         #    self.ema.update(self.model)
+
+
+    def save_model(self):
+        """Save model training checkpoints with additional metadata."""
+        #import pandas as pd  # scope for faster startup
+        #metrics = {**self.metrics, **{'fitness': self.fitness}}
+        #results = {k.strip(): v for k, v in pd.read_csv(self.csv).to_dict(orient='list').items()}
+        """
+        ckpt = {
+            'epoch': self.epoch,
+            'best_fitness': self.best_fitness,
+            'model': deepcopy(de_parallel(self.model)).half(),
+            'ema': deepcopy(self.ema.ema).half(),
+            'updates': self.ema.updates,
+            'optimizer': self.optimizer.state_dict(),
+            'train_args': vars(self.args),  # save as dict
+            'train_metrics': metrics,
+            'train_results': results,
+            'date': datetime.now().isoformat(),
+            'version': __version__}
+        """
+        ckpt = {
+            'epoch': self.epoch,
+            'model': deepcopy(de_parallel(self.model)).half(),
+            'train_args': vars(self.args),  # save as dict
+            'date': datetime.now().isoformat()}
+
+        # Save last and best
+        torch.save(ckpt,f"/share/projects/cicero/checkpoints_baki/lr_{self.args.lrf}_epoch_{self.epoch}.pt")
 
 
 
