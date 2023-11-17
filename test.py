@@ -65,5 +65,5 @@ def pred_one_image(image_file,ckpt,cfg="myyolov8m.yaml",mode="train"):
     image = image.unsqueeze(0)
 
     x = predictor(source=image ,model=model)
-    for pred in x:
-        pred.save_txt("res1.txt",True)
+    for i in range(len(x)):
+        x[i].save_txt(f"pred_res{i}.txt",True)
