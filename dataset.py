@@ -36,16 +36,18 @@ class CliffDataset(Dataset):
         im_files_patch2 = patch1 if stereo == False else patch2
 
         image_patch_1 = load_image(patch1)[:,:,:3]
-        image_patch_1 = (image_patch_1 - MAX_MIN[f"{self.mode}_min"]) / (MAX_MIN[f"{self.mode}_max"] - MAX_MIN[f"{self.mode}_min"])
-        if np.max(image_patch_1) > 1 or np.min(image_patch_1) < 0:
-            raise ValueError("MAX MIN SHOULD BE BETWEEN 0-1, patch1")
+        max_patch_1 = np.max(image_patch_1)
+        min_patch_1 = np.min(image_patch_1)
+        #image_patch_1 = (image_patch_1 - MAX_MIN[f"{self.mode}_min"]) / (MAX_MIN[f"{self.mode}_max"] - MAX_MIN[f"{self.mode}_min"])
+        image_patch_1 = (image_patch_1 - min_patch_1) / (max_patch_1 - min_patch_1)
         image_patch_1 = torch.tensor(image_patch_1).float().permute(2, 0, 1)
 
         if stereo:
             image_patch_2 = load_image(patch2)[:,:,:3]
-            image_patch_2 = (image_patch_2 - MAX_MIN[f"{self.mode}_min"]) / (MAX_MIN[f"{self.mode}_max"] - MAX_MIN[f"{self.mode}_min"])
-            if np.max(image_patch_2) > 1 or np.min(image_patch_2) < 0:
-                raise ValueError("MAX MIN SHOULD BE BETWEEN 0-1, patch2")
+            max_patch_2 = np.max(image_patch_2)
+            min_patch_2 = np.min(image_patch_2)
+            #image_patch_2 = (image_patch_2 - MAX_MIN[f"{self.mode}_min"]) / (MAX_MIN[f"{self.mode}_max"] - MAX_MIN[f"{self.mode}_min"])
+            image_patch_2 = (image_patch_2 - min_patch_2) / (max_patch_2 - min_patch_2)
             image_patch_2 = torch.tensor(image_patch_2).float().permute(2, 0, 1)
         else:
             image_patch_2 = copy.deepcopy(image_patch_1)

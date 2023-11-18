@@ -5,7 +5,7 @@ Uzun Baki
 from model import *
 from torch.utils.data import DataLoader
 from dataset import CliffDataset
-from trainer import MyTrainer
+from trainer import MyDetectionTrainer
 
 
 model_config = {
@@ -20,6 +20,5 @@ model.nc = 1
 model.names = ["erosion"]
 
 
-train_dataset = CliffDataset(mode="train")
-trainer = MyTrainer(cfg="cfg.yaml",model=model,dataset=train_dataset)
+trainer = MyDetectionTrainer(cfg="cfg.yaml",model=model)
 trainer.train()

@@ -4,35 +4,41 @@ from torch.cuda import amp
 import math
 from torch.utils.data import DataLoader
 import numpy as np
-from torch import nn, optim
+from torch import optim
 from torch.cuda import amp
 from ultralytics.utils.loss import v8DetectionLoss
 from ultralytics.cfg import get_cfg
 from ultralytics.utils.torch_utils import (EarlyStopping, one_cycle,de_parallel)
 import warnings
-from torchvision.transforms import ToTensor
 from ultralytics.utils.checks import check_amp
 from ultralytics.models.yolo.detect import DetectionPredictor
 import warnings
 from copy import deepcopy
+import copy
+from dataset import CliffDataset
+from validator import MyDetectionValidator
 from datetime import datetime
+from ultralytics.engine.trainer import BaseTrainer
 
 
-class MyTrainer():
-    def __init__(self,cfg,model,dataset,overrides=None):
+class MyDetectionTrainer(BaseTrainer):
+    def __init__(self,cfg,model,overrides=None):
 
         self.args = get_cfg(cfg, overrides)
 
         self.device  = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+        self.save_dir = self.args.save_dir
         self.validator = None
 
         self.model = model
         self.model.to(self.device)
         self.model.args = self.args
 
-        self.dataset = dataset
+        self.train_dataset = CliffDataset(mode="train")
+        self.validation_dataset = CliffDataset(mode="validation")
         self.metrics = None
+
 
         ## criterion init
         self.criterion_head_1 = v8DetectionLoss(self.model)
@@ -51,6 +57,7 @@ class MyTrainer():
         self.batch_size = self.args.batch
         self.loss = None
         self.tloss = None
+        #self.tloss_head_2 = None
         self.loss_names = ['Loss']
 
     def train(self):
@@ -58,7 +65,7 @@ class MyTrainer():
 
         world_size = 1 if  self.device == "cuda" else 0
         self._setup_train(world_size)
-        self._do_train(world_size)
+        #self._do_train(world_size)
 
     def _setup_train(self, world_size):
         """Builds dataloaders and optimizer on correct rank process."""
@@ -71,25 +78,21 @@ class MyTrainer():
         self.amp = bool(self.amp)  # as boolean
         self.scaler = amp.GradScaler(enabled=self.amp)
 
-
         # Dataloaders
-        batch_size = self.batch_size // max(world_size, 1)
+        batch_size = self.batch_size
 
-        self.train_loader =  DataLoader(self.dataset, batch_size=self.batch_size, shuffle=False)
-        """
-        if RANK in (-1, 0):
-            self.test_loader = self.get_dataloader(self.testset, batch_size=batch_size * 2, rank=-1, mode='val')
-            self.validator = self.get_validator()
-            metric_keys = self.validator.metrics.keys + self.label_loss_items(prefix='val')
-            self.metrics = dict(zip(metric_keys, [0] * len(metric_keys)))
-            #self.ema = ModelEMA(self.model)
+        self.train_loader =  DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=False,num_workers=self.args.workers)
+        self.validation_loader =  DataLoader(self.validation_dataset ,batch_size=batch_size * 2,shuffle=False, num_workers=self.args.workers)
 
-        """
+        self.init_validator()
+        metric_keys = self.validator.metrics.keys + self.label_loss_items(prefix='val')
+        self.metrics = dict(zip(metric_keys, [0] * len(metric_keys)))
+        #self.ema = ModelEMA(self.model)
 
         # Optimizer
         self.accumulate = max(round(self.args.nbs / self.batch_size), 1)  # accumulate loss before optimizing
         weight_decay = self.args.weight_decay * self.batch_size * self.accumulate / self.args.nbs  # scale weight_decay
-        print("TRAIN_LOADER_DATASET = ",len(self.train_loader.dataset))
+
         iterations = math.ceil(len(self.train_loader.dataset) / max(self.batch_size, self.args.nbs)) * self.epochs
 
         self.optimizer = self.build_optimizer(model=self.model,
@@ -125,6 +128,7 @@ class MyTrainer():
             pbar = enumerate(self.train_loader)
 
             self.tloss = None
+            self.tloss_head_2 = None
             self.optimizer.zero_grad()
             for i, batch in pbar:
 
@@ -144,17 +148,21 @@ class MyTrainer():
                 with torch.cuda.amp.autocast(self.amp):
                     features = self.model(batch["img"].to(self.device))
 
-                    patch_1_annotation,patch_2_annotation = self.dataset.retrieve_annotation(batch,self.device)
+                    patch_1_annotation,patch_2_annotation = self.train_dataset.retrieve_annotation(batch,self.device)
                     batch['cls'] = patch_1_annotation['cls']
-
+                    #batch['cls_2'] = patch_2_annotation['cls']
                     self.loss_head_1, self.loss_items_head_1 = self.criterion_head_1(features["x_1"],patch_1_annotation)
                     #self.loss_head_2, self.loss_items_head_2 = self.criterion_head_2(features["x_2"],patch_2_annotation)
 
                     self.tloss = (self.tloss * i + self.loss_items_head_1) / (i + 1) if self.tloss is not None \
                         else self.loss_items_head_1
 
+                    #self.tloss_head_2 = (self.tloss_head_2 * i + self.loss_items_head_2) / (i + 1) if self.tloss_head_2 is not None \
+                        #else self.loss_items_head_2
+
                 # Backward
                 self.scaler.scale(self.loss_head_1).backward()
+                #self.scaler.scale((self.loss_head_1 + self.loss_head_2) / 2 ).backward()
 
                 # Optimize - https://pytorch.org/docs/master/notes/amp_examples.html
                 if ni - last_opt_step >= self.accumulate:
@@ -166,9 +174,15 @@ class MyTrainer():
                 loss_len = self.tloss.shape[0] if len(self.tloss.size()) else 1
                 losses = self.tloss if loss_len > 1 else torch.unsqueeze(self.tloss, 0)
 
+                #loss_len_2 = self.tloss_head_2.shape[0] if len(self.tloss_head_2.size()) else 1
+                #losses_2 = self.tloss_head_2 if loss_len_2 > 1 else torch.unsqueeze(self.tloss_head_2, 0)
+
 
                 print("INFO |",(('%11s' * 2 + '%11.4g' * (2 + loss_len)) %
                         (f'{epoch + 1}/{self.epochs}', mem, *losses, batch['cls'].shape[0], batch['img'].shape[-1])))
+
+                #print("HEAD 2 INFO |",(('%11s' * 2 + '%11.4g' * (2 + loss_len_2)) %
+                        #(f'{epoch + 1}/{self.epochs}', mem, *losses_2, batch['cls_2'].shape[0], batch['img'].shape[-1])))
 
             self.lr = {f'lr/pg{ir}': x['lr'] for ir, x in enumerate(self.optimizer.param_groups)}  # for loggers
 
@@ -201,6 +215,24 @@ class MyTrainer():
         #    self.ema.update(self.model)
 
 
+    def label_loss_items(self, loss_items=None, prefix='train'):
+        """
+        Returns a loss dict with labelled training loss items tensor.
+
+        Not needed for classification but necessary for segmentation & detection
+        """
+        keys = [f'{prefix}/{x}' for x in self.loss_names]
+        if loss_items is not None:
+            loss_items = [round(float(x), 5) for x in loss_items]  # convert tensors to 5 decimal place floats
+            return dict(zip(keys, loss_items))
+        else:
+            return keys
+
+    def init_validator(self):
+        """Returns a DetectionValidator for YOLO model validation."""
+        self.loss_names = 'box_loss', 'cls_loss', 'dfl_loss'
+        self.validator = MyDetectionValidator(dataloader=self.validation_loader)
+
     def save_model(self):
         """Save model training checkpoints with additional metadata."""
         #import pandas as pd  # scope for faster startup
@@ -227,63 +259,4 @@ class MyTrainer():
             'date': datetime.now().isoformat()}
 
         # Save last and best
-        torch.save(ckpt,f"/share/projects/cicero/checkpoints_baki/lr_{self.args.lrf}_epoch_{self.epoch}.pt")
-
-
-
-
-    def build_optimizer(self, model, name='auto', lr=0.001, momentum=0.9, decay=1e-5, iterations=1e5):
-        """
-        Constructs an optimizer for the given model, based on the specified optimizer name, learning rate, momentum,
-        weight decay, and number of iterations.
-
-        Args:
-            model (torch.nn.Module): The model for which to build an optimizer.
-            name (str, optional): The name of the optimizer to use. If 'auto', the optimizer is selected
-                based on the number of iterations. Default: 'auto'.
-            lr (float, optional): The learning rate for the optimizer. Default: 0.001.
-            momentum (float, optional): The momentum factor for the optimizer. Default: 0.9.
-            decay (float, optional): The weight decay for the optimizer. Default: 1e-5.
-            iterations (float, optional): The number of iterations, which determines the optimizer if
-                name is 'auto'. Default: 1e5.
-
-        Returns:
-            (torch.optim.Optimizer): The constructed optimizer.
-        """
-
-        g = [], [], []  # optimizer parameter groups
-        bn = tuple(v for k, v in nn.__dict__.items() if 'Norm' in k)  # normalization layers, i.e. BatchNorm2d()
-        if name == 'auto':
-            #nc = getattr(model, 'nc', 10)  # number of classes
-            nc = 1
-
-            lr_fit = round(0.002 * 5 / (4 + nc), 6)  # lr0 fit equation to 6 decimal places
-            name, lr, momentum = ('SGD', 0.01, 0.9) if iterations > 10000 else ('AdamW', lr_fit, 0.9)
-            self.args.warmup_bias_lr = 0.0  # no higher than 0.01 for Adam
-
-        for module_name, module in model.named_modules():
-            for param_name, param in module.named_parameters(recurse=False):
-                fullname = f'{module_name}.{param_name}' if module_name else param_name
-                if 'bias' in fullname:  # bias (no decay)
-                    g[2].append(param)
-                elif isinstance(module, bn):  # weight (no decay)
-                    g[1].append(param)
-                else:  # weight (with decay)
-                    g[0].append(param)
-
-        if name in ('Adam', 'Adamax', 'AdamW', 'NAdam', 'RAdam'):
-            optimizer = getattr(optim, name, optim.Adam)(g[2], lr=lr, betas=(momentum, 0.999), weight_decay=0.0)
-        elif name == 'RMSProp':
-            optimizer = optim.RMSprop(g[2], lr=lr, momentum=momentum)
-        elif name == 'SGD':
-            optimizer = optim.SGD(g[2], lr=lr, momentum=momentum, nesterov=True)
-        else:
-            raise NotImplementedError(
-                f"Optimizer '{name}' not found in list of available optimizers "
-                f'[Adam, AdamW, NAdam, RAdam, RMSProp, SGD, auto].'
-                'To request support for addition optimizers please visit https://github.com/ultralytics/ultralytics.')
-
-        optimizer.add_param_group({'params': g[0], 'weight_decay': decay})  # add g0 with weight_decay
-        optimizer.add_param_group({'params': g[1], 'weight_decay': 0.0})  # add g1 (BatchNorm2d weights)
-
-        return optimizer
+        torch.save(ckpt,f"/share/projects/cicero/checkpoints_baki/cross_lr_{self.args.lrf}_epoch_{self.epoch}.pt")

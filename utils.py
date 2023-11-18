@@ -13,9 +13,11 @@ from PIL import Image
 import pandas as pd
 import sys
 from ultralytics.models.yolo.detect import DetectionPredictor
-from dataset import MAX_MIN
+
 
 BASE_LABEL_FILE_PATH = "/share/projects/cicero/objdet/dataset/CICERO_stereo/train_label/1_Varengeville_sur_Mer/"
+
+
 def image_to_label_path(img_file,patch1=True):
 
     img_file = img_file.split("/")
@@ -55,7 +57,6 @@ def get_label_info(path,index):
     return {"bboxes":bboxes,"cls":cls,"batch_idx":batch_idx}
 
 def load_image(file_path):
-    ## 4 band but were are taking only the rgb band for now
     try:
         #return np.array(Image.open(file_path))
         return np.array(cv2.imread(file_path, cv2.IMREAD_UNCHANGED))
@@ -98,22 +99,58 @@ def get_min_max_dataset(mode="train"):
 
 
 
-def pred_one_image(model,image_file,mode="train",output_file=None):
+def pred_one_image(model,image_path,MAX_MIN,mode="train",output_file=None):
 
     if output_file == None:
        output_file = "pred_res.txt"
 
     predictor = DetectionPredictor()
 
-    image = load_image(image_file)
+    image = load_image(image_path)
     image = image[:,:,:3]
-    image = (image - MAX_MIN[f"{mode}_min"]) / (MAX_MIN[f"{mode}_max"] - MAX_MIN[f"{mode}_min"])
+    image_max = np.max(image)
+    image_min = np.min(image)
+    image = ((image - image_min) / (image_max - image_min))
+    #image = (image - MAX_MIN[f"{mode}_min"]) / (MAX_MIN[f"{mode}_max"] - MAX_MIN[f"{mode}_min"])
 
     image = torch.tensor(image).float().permute(2, 0, 1)
     image = image.unsqueeze(0)
 
     x = predictor(source=image ,model=model)
     x[0].save_txt(output_file,True)
+
+
+def save_image_using_label(image_path,label_path,save_path):
+    """
+    method used for quick check & test
+    goal: save an image after drawing the bounding box
+    using his label file, which mean we do not make any prediction
+    """
+
+    image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
+    image = image[:,:,:3]
+    image_max = np.max(image)
+    image_min = np.min(image)
+    image = ((image - image_min) / (image_max - image_min)) * 255
+
+    label = get_label_info(label_path,index=0) # index is not important here
+    label_bboxes = label["bboxes"]
+
+    height, width, _ = image.shape
+
+    for box in label_bboxes:
+        x, y, w, h = [int(v * width) for v in box]  # Convert relative coordinates to pixels
+        x1, y1 = x - w // 2, y - h // 2  # Calculate top-left corner
+        x2, y2 = x + w // 2, y + h // 2  # Calculate bottom-right corner
+        cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)  # Draw rectangle
+
+    cv2.imwrite(save_path, image)
+
+
+
+
+
+
 
 
 

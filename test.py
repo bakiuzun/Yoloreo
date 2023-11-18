@@ -1,69 +1,43 @@
-
-import numpy as np
-from torchvision.transforms import ToTensor
-from ultralytics.nn.tasks import *
-from ultralytics.models.yolo.detect import DetectionPredictor
-import pandas as pd
+from utils import  save_image_using_label,pred_one_image
 from dataset import MAX_MIN
-from utils import load_image
-import os
-import cv2
-import torch
 from model import MyYolo
-import sys
 
+image_path = "/share/projects/cicero/objdet/dataset/CICERO_stereo/images/1_Varengeville_sur_Mer/202107221109551_202107221110373/patches_img1/tiles_202107221109551_18560_05440.png"
+label_path = "/share/projects/cicero/objdet/dataset/CICERO_stereo/train_label/1_Varengeville_sur_Mer/202107221109551_202107221110373/patches_cm_indiv_stereo/patches_cm1_txt/tiles_202107221109551_18560_05440.txt"
 
-def get_min_max_dataset(mode="train"):
-
-    df = pd.read_csv(f"csv/image_{mode}_split.csv")
-    le_max = -1
-    le_min = sys.maxsize
-
-    for i in range(len(df)):
-        row = df.iloc[i]
-        patch1 = row["patch1"]
-        patch2 = row["patch2"]
-
-        file = patch1
-        image = cv2.imread(file, cv2.IMREAD_UNCHANGED)
-        image = image[:,:,:3]
-        max_1 = np.max(image)
-        min_1 = np.min(image)
-        if pd.isna(patch2):
-            le_max = max(le_max,max_1)
-            le_min = min(min_1,le_min)
-
-        else:
-            file2 = patch2
-            image_2 = cv2.imread(file2, cv2.IMREAD_UNCHANGED)
-            image_2 = image_2[:,:,:3]
-            max_2 = np.max(image_2)
-            min_2 = np.min(image_2)
-
-            le_max = max(max_1,max_2,le_max)
-            le_min = min(min_1,min_2,le_min)
-
-    return le_max,le_min
+#save_image_using_label(image_path=image_path,label_path=label_path,save_path=None)
 
 
 
-def pred_one_image(image_file,ckpt,cfg="myyolov8m.yaml",mode="train"):
 
-    model = MyYolo(cfg=cfg)
-    model.load_pretrained_weights(ckpt)
-    model.nc = 1
-    model.names = ["erosion"]
+image_path = "/share/projects/cicero/objdet/dataset/CICERO_stereo/images/1_Varengeville_sur_Mer/202107221109551_202107221110373/patches_img1/tiles_202107221109551_33280_02880.png"
 
 
-    predictor = DetectionPredictor()
 
-    image = load_image(image_file)
-    image = image[:,:,:3]
-    image = (image - MAX_MIN[f"{mode}_min"]) / (MAX_MIN[f"{mode}_max"] - MAX_MIN[f"{mode}_min"])
 
-    image = torch.tensor(image).float().permute(2, 0, 1)
-    image = image.unsqueeze(0)
+## model def
+model = MyYolo(cfg="myyolov8m.yaml")
+model.load_pretrained_weights("/share/projects/cicero/checkpoints_baki/cross_lr_0.0005_epoch_80.pt")
+model.nc = 1
+model.names = ["erosion"]
+#pred_one_image(model,image_path,MAX_MIN,mode="train",output_file=None)
 
-    x = predictor(source=image ,model=model)
-    for i in range(len(x)):
-        x[i].save_txt(f"pred_res{i}.txt",True)
+"""
+
+import pandas as pd
+from utils import image_to_label_path
+
+
+df = pd.read_csv("csv/image_train_split.csv")
+for i in range(15):
+    image_path = df.iloc[i]["patch1"]
+    print(image_path)
+    pred_one_image(model,image_path,MAX_MIN,mode="validation",output_file=None)
+
+    label_path = image_to_label_path(image_path,True)
+
+    #save_image_using_label(image_path=image_path,label_path=label_path,save_path=f"test_{i}.png")
+
+
+
+"""
