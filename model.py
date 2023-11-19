@@ -68,7 +68,7 @@ class MyYolo(BaseModel):
         if self.first_forward:
             return self._build_stride(x,profile,visualize)
 
-
+        """
         if len(x) == 1:
 
             x_2 = copy.deepcopy(x)
@@ -86,6 +86,7 @@ class MyYolo(BaseModel):
             #x_1,y_1 = self._forward_head(x_1,y_1,head1=True)
 
             return x_1
+        """
 
         y_1 = []
         y_2 = []
@@ -94,13 +95,13 @@ class MyYolo(BaseModel):
 
 
         x_1,y_1 = self._forward_backbone(x_1,y_1)
-        x_2,y_2 = self._forward_backbone(x_2,y_2)
+        #x_2,y_2 = self._forward_backbone(x_2,y_2)
 
-        attended_feature_2 = self._cross_attention(x_1,x_2)
-        attended_feature_1 = self._cross_attention(x_2,x_1)
+        #attended_feature_2 = self._cross_attention(x_1,x_2)
+        #attended_feature_1 = self._cross_attention(x_2,x_1)
 
-        x_1,y_1 = self._forward_head(attended_feature_2,y_1,head1=True)
-        x_2,y_2 = self._forward_head(attended_feature_1,y_2,head1=False)
+        x_1,y_1 = self._forward_head(x_1,y_1,head1=True)
+        #x_2,y_2 = self._forward_head(attended_feature_1,y_2,head1=False)
 
         data = {'x_1':x_1,'x_2':x_2}
 

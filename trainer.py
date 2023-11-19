@@ -28,7 +28,7 @@ class MyDetectionTrainer(BaseTrainer):
 
         self.device  = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        self.save_dir = self.args.save_dir
+        self.save_dir = "/share/projects/cicero/checkpoints_baki/"
         self.validator = None
 
         self.model = model
@@ -40,6 +40,8 @@ class MyDetectionTrainer(BaseTrainer):
         self.metrics = None
 
 
+        self.wdir = self.save_dir + 'weights/'  # weights dir
+        self.last, self.best = self.wdir + 'last.pt', self.wdir + 'best.pt'  # checkpoint paths
         ## criterion init
         self.criterion_head_1 = v8DetectionLoss(self.model)
         self.criterion_head_2 = v8DetectionLoss(self.model)
@@ -65,7 +67,7 @@ class MyDetectionTrainer(BaseTrainer):
 
         world_size = 1 if  self.device == "cuda" else 0
         self._setup_train(world_size)
-        #self._do_train(world_size)
+        self._do_train(world_size)
 
     def _setup_train(self, world_size):
         """Builds dataloaders and optimizer on correct rank process."""
@@ -191,17 +193,19 @@ class MyDetectionTrainer(BaseTrainer):
                 self.scheduler.step()
 
 
+            self.metrics, self.fitness = self.validate()
+            self.save_metrics(metrics={**self.label_loss_items(self.tloss), **self.metrics, **self.lr})
+            self.save_model()
             torch.cuda.empty_cache()  # clears GPU vRAM at end of epoch, can help with out of memory errors
+
 
             if self.epoch % 20 == 0:
                 self.save_model()
 
 
         torch.cuda.empty_cache()
-        print("SAVE MODEL ")
-        #model_path = 'my_model.pth'
+        self.save_model()
 
-        #torch.save(self.model.state_dict(), model_path)
 
     def optimizer_step(self):
         """Perform a single step of the training optimizer with gradient clipping and EMA update."""
@@ -233,30 +237,44 @@ class MyDetectionTrainer(BaseTrainer):
         self.loss_names = 'box_loss', 'cls_loss', 'dfl_loss'
         self.validator = MyDetectionValidator(dataloader=self.validation_loader)
 
+
+
     def save_model(self):
         """Save model training checkpoints with additional metadata."""
-        #import pandas as pd  # scope for faster startup
-        #metrics = {**self.metrics, **{'fitness': self.fitness}}
-        #results = {k.strip(): v for k, v in pd.read_csv(self.csv).to_dict(orient='list').items()}
-        """
+        import pandas as pd  # scope for faster startup
+        metrics = {**self.metrics, **{'fitness': self.fitness}}
+        results = {k.strip(): v for k, v in pd.read_csv(self.csv).to_dict(orient='list').items()}
         ckpt = {
             'epoch': self.epoch,
             'best_fitness': self.best_fitness,
             'model': deepcopy(de_parallel(self.model)).half(),
-            'ema': deepcopy(self.ema.ema).half(),
-            'updates': self.ema.updates,
+            #'ema': deepcopy(self.ema.ema).half(),
+            #'updates': self.ema.updates,
             'optimizer': self.optimizer.state_dict(),
             'train_args': vars(self.args),  # save as dict
             'train_metrics': metrics,
             'train_results': results,
-            'date': datetime.now().isoformat(),
-            'version': __version__}
+            'date': datetime.now().isoformat()
+            }
+
+        # Save last and best
+        #torch.save(ckpt, self.last)
+        if self.best_fitness == self.fitness:
+            torch.save(ckpt, self.best)
+
+        if self.epoch + 1 == self.args.epochs:
+            torch.save(ckpt, self.last)
+
+
         """
         ckpt = {
             'epoch': self.epoch,
             'model': deepcopy(de_parallel(self.model)).half(),
             'train_args': vars(self.args),  # save as dict
-            'date': datetime.now().isoformat()}
+            'date': datetime.now().isoformat()
+
+        }
+        """
 
         # Save last and best
-        torch.save(ckpt,f"/share/projects/cicero/checkpoints_baki/cross_lr_{self.args.lrf}_epoch_{self.epoch}.pt")
+        #torch.save(ckpt,f"/share/projects/cicero/checkpoints_baki/cross_lr_{self.args.lrf}_epoch_{self.epoch}.pt")
