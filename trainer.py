@@ -29,19 +29,23 @@ class MyDetectionTrainer(BaseTrainer):
         self.device  = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.save_dir = "/share/projects/cicero/checkpoints_baki/"
-        self.validator = None
 
         self.model = model
         self.model.to(self.device)
         self.model.args = self.args
 
         self.train_dataset = CliffDataset(mode="train")
+
         self.validation_dataset = CliffDataset(mode="validation")
-        self.metrics = None
+        self.validator = None # class Validator
+
+        self.metrics_head_1 = None
+        self.metrics_head_2 = None
 
 
         self.wdir = self.save_dir + 'weights/'  # weights dir
         self.last, self.best = self.wdir + 'last.pt', self.wdir + 'best.pt'  # checkpoint paths
+
         ## criterion init
         self.criterion_head_1 = v8DetectionLoss(self.model)
         self.criterion_head_2 = v8DetectionLoss(self.model)
@@ -86,9 +90,12 @@ class MyDetectionTrainer(BaseTrainer):
         self.train_loader =  DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=False,num_workers=self.args.workers)
         self.validation_loader =  DataLoader(self.validation_dataset ,batch_size=batch_size * 2,shuffle=False, num_workers=self.args.workers)
 
+
+        ## Validation
         self.init_validator()
         metric_keys = self.validator.metrics.keys + self.label_loss_items(prefix='val')
-        self.metrics = dict(zip(metric_keys, [0] * len(metric_keys)))
+        self.metrics_head_1 = dict(zip(metric_keys, [0] * len(metric_keys)))
+        self.metrics_head_2 = dict(zip(metric_keys, [0] * len(metric_keys)))
         #self.ema = ModelEMA(self.model)
 
         # Optimizer
@@ -235,7 +242,7 @@ class MyDetectionTrainer(BaseTrainer):
     def init_validator(self):
         """Returns a DetectionValidator for YOLO model validation."""
         self.loss_names = 'box_loss', 'cls_loss', 'dfl_loss'
-        self.validator = MyDetectionValidator(dataloader=self.validation_loader)
+        self.validator = MyDetectionValidator(dataloader=self.validation_loader,dataset=self.validation_dataset)
 
 
 
