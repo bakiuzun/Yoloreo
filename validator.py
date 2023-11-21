@@ -18,6 +18,20 @@ from ultralytics.utils.ops import Profile
 from ultralytics.utils.torch_utils import de_parallel, select_device, smart_inference_mode
 
 
+import os
+from pathlib import Path
+
+import numpy as np
+import torch
+
+from ultralytics.data import build_dataloader, build_yolo_dataset, converter
+from ultralytics.engine.validator import BaseValidator
+from ultralytics.utils import LOGGER, ops
+from ultralytics.utils.checks import check_requirements
+from ultralytics.utils.metrics import ConfusionMatrix, DetMetrics, box_iou
+from ultralytics.utils.plotting import output_to_target, plot_images
+from ultralytics.utils.torch_utils import de_parallel
+
 class MyDetectionValidator(DetectionValidator):
     def __init__(self, dataloader=None, save_dir=None, args=None,dataset=None):
 
@@ -26,7 +40,6 @@ class MyDetectionValidator(DetectionValidator):
         super().__init__(dataloader, save_dir, args)
 
         self.dataset = dataset
-
 
     @smart_inference_mode()
     def __call__(self, trainer=None,criterions=None):
@@ -37,14 +50,15 @@ class MyDetectionValidator(DetectionValidator):
         self.args.half = self.device.type != 'cpu'  # force FP16 val during training
         #model = trainer.ema.ema or trainer.model
         model = trainer.model
-        model = model.half() if self.args.half else model.float()
+        #model = model.half() if self.args.half else model.float()
 
         #self.loss_head_1 = torch.zeros_like(trainer.loss_items, device=trainer.device)
         #self.loss_head_2 = torch.zeros_like(trainer.loss_items, device=trainer.device)
 
         # 3, cls,bboxes, dl loss (Detection Focal Loss)
-        self.loss_head_1 = torch.zeros_like([0,0,0], device=trainer.device)
-        self.loss_head_2 = torch.zeros_like([0,0,0], device=trainer.device)
+
+        self.loss_head_1 = torch.zeros(3).to(device=trainer.device)
+        self.loss_head_2 = torch.zeros(3).to(device=trainer.device)
 
         model.eval()
 
@@ -55,36 +69,37 @@ class MyDetectionValidator(DetectionValidator):
         for batch_i, batch in enumerate(bar):
             self.batch_i = batch_i
 
-            patch_1_annotation,patch_2_annotation = self.dataset.retrieve_annotation(batch_i,self.device)
+            patch_1_annotation,patch_2_annotation = self.dataset.retrieve_annotation(batch,self.device)
 
             # Preprocess
-            batch = self.preprocess(batch)
+            #batch = self.preprocess(batch)
 
             # Inference
             #preds = model(batch['img'], augment=augment)
-            features = model(batch['img'])
+
+            features = model(batch['img'].to(trainer.device))
             preds_head_1 = features["x_1"]
             preds_head_2 = features["x_2"]
 
+
             # Loss
-            patch_annotation = patch_1_annotation if self.head1 == True else patch_2_annotation
             #self.loss += criterion(batch, preds)[1]
 
             # criterion[0] refers to the criterion of the first HEAD
-            self.loss_head_1 += criterions[0](patch_annotation, preds_head_1)[1]
-            self.loss_head_2 += criterions[1](patch_annotation, preds_head_2)[1]
+            self.loss_head_1 += criterions[0](preds_head_1,patch_1_annotation)[1]
+            self.loss_head_2 += criterions[1](preds_head_2,patch_2_annotation)[1]
 
             preds_head_1 = self.postprocess(preds_head_1)
             preds_head_2 = self.postprocess(preds_head_2)
 
 
             img = batch["img"]
-            batch_head_1 = batch["img"]
+            batch_head_1 = batch
             batch_head_1["img"] = img[:,0]
             batch_head_1.update(patch_1_annotation)
             self.update_metrics(preds_head_1, batch_head_1,head1=True)
 
-            batch_head_2 = batch["img"]
+            batch_head_2 = batch
             batch_head_2["img"] = img[:,1]
             batch_head_2.update(patch_2_annotation)
             self.update_metrics(preds_head_2, batch_head_2,head1=False)
@@ -99,15 +114,35 @@ class MyDetectionValidator(DetectionValidator):
         return {k: round(float(v), 5) for k, v in results.items()}  # return results as 5 decimal place floats
 
 
+    def init_metrics(self, model):
+        """Initialize evaluation metrics for YOLO."""
+
+        self.class_map = list(range(1000))
+        self.names = model.names
+        self.nc = len(model.names)
+        self.metrics.names = self.names
+        #self.metrics.names = {'0':'erosion'}
+        self.metrics.plot = self.args.plots
+        self.confusion_matrix = ConfusionMatrix(nc=self.nc, conf=self.args.conf)
+        self.seen = 0
+        self.jdict = []
+        self.stats = []
+
+
+
+
     def update_metrics(self, preds, batch,head1=True):
         """Metrics."""
         for si, pred in enumerate(preds):
             idx = batch['batch_idx'] == si
             cls = batch['cls'][idx]
+            cls = cls.unsqueeze(1)
             bbox = batch['bboxes'][idx]
             nl, npr = cls.shape[0], pred.shape[0]  # number of labels, predictions
-            shape = batch['ori_shape'][si] # 640,640
+            #shape = (batch['ori_shape'][si]) # 640,640
+            shape = (640,640)
             correct_bboxes = torch.zeros(npr, self.niou, dtype=torch.bool, device=self.device)  # init
+
             self.seen += 1
 
             if npr == 0:
@@ -121,16 +156,17 @@ class MyDetectionValidator(DetectionValidator):
             if self.args.single_cls:
                 pred[:, 5] = 0
             predn = pred.clone()
-            ops.scale_boxes(batch['img'][si].shape[1:], predn[:, :4], shape,
-                            ratio_pad=batch['ratio_pad'][si])  # native-space pred
+
+            ops.scale_boxes(batch['img'][si].shape[1:], predn[:, :4], shape,ratio_pad=None,padding=False)  # native-space pred
 
             # Evaluate
             if nl:
                 height, width = batch['img'].shape[2:]
+
                 tbox = ops.xywh2xyxy(bbox) * torch.tensor(
                     (width, height, width, height), device=self.device)  # target boxes
-                ops.scale_boxes(batch['img'][si].shape[1:], tbox, shape,
-                                ratio_pad=batch['ratio_pad'][si])  # native-space labels
+                ops.scale_boxes(batch['img'][si].shape[1:], tbox, shape,ratio_pad=None,padding=False)  # native-space labels
+
                 labelsn = torch.cat((cls, tbox), 1)  # native-space labels
                 correct_bboxes = self._process_batch(predn, labelsn)
                 # TODO: maybe remove these `self.` arguments as they already are member variable

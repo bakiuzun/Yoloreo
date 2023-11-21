@@ -132,6 +132,9 @@ class MyDetectionTrainer(BaseTrainer):
         epoch = self.epochs  # predefine for resume fully trained model edge cases
         for epoch in range(self.start_epoch, self.epochs):
 
+            self.metrics, self.fitness = self.validator(trainer=self,criterions=[self.criterion_head_1,self.criterion_head_2])
+            self.save_metrics(metrics={**self.label_loss_items(self.tloss), **self.metrics, **self.lr})
+
             self.epoch = epoch
             self.model.train()
             pbar = enumerate(self.train_loader)
@@ -200,9 +203,9 @@ class MyDetectionTrainer(BaseTrainer):
                 self.scheduler.step()
 
 
-            self.metrics, self.fitness = self.validate()
-            self.save_metrics(metrics={**self.label_loss_items(self.tloss), **self.metrics, **self.lr})
-            self.save_model()
+            #self.metrics, self.fitness = self.validate()
+            #self.save_metrics(metrics={**self.label_loss_items(self.tloss), **self.metrics, **self.lr})
+            #self.save_model()
             torch.cuda.empty_cache()  # clears GPU vRAM at end of epoch, can help with out of memory errors
 
 

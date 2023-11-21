@@ -57,7 +57,7 @@ class CliffDataset(Dataset):
 
         data = torch.cat([image_patch_1, image_patch_2], dim=0)
 
-        res = {"img":data,"stereo":stereo,"im_files_patch1":im_files_patch1,"im_files_patch2":im_files_patch2,"ori_shape": [640,640] }
+        res = {"img":data,"stereo":stereo,"im_files_patch1":im_files_patch1,"im_files_patch2":im_files_patch2 }
 
         return res
 

@@ -17,7 +17,7 @@ model_config = {
 model = MyYolo(cfg=model_config["arch"])
 model.load_pretrained_weights(model_config["checkpoint"])
 model.nc = 1
-model.names = ["erosion"]
+model.names = {0:"erosion"}
 
 
 trainer = MyDetectionTrainer(cfg="cfg.yaml",model=model)
