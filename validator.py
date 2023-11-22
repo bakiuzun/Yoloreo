@@ -42,7 +42,7 @@ class MyDetectionValidator(DetectionValidator):
         self.dataset = dataset
 
     @smart_inference_mode()
-    def __call__(self, trainer=None,criterions=None):
+    def __call__(self, trainer=None):
 
         #augment = self.args.augment and (not self.training)
 
@@ -86,8 +86,8 @@ class MyDetectionValidator(DetectionValidator):
             #self.loss += criterion(batch, preds)[1]
 
             # criterion[0] refers to the criterion of the first HEAD
-            self.loss_head_1 += criterions[0](preds_head_1,patch_1_annotation)[1]
-            self.loss_head_2 += criterions[1](preds_head_2,patch_2_annotation)[1]
+            self.loss_head_1 += trainer.criterion_head_1(preds_head_1,patch_1_annotation)[1]
+            self.loss_head_2 += trainer.criterion_head_2(preds_head_2,patch_2_annotation)[1]
 
             preds_head_1 = self.postprocess(preds_head_1)
             preds_head_2 = self.postprocess(preds_head_2)
@@ -110,7 +110,9 @@ class MyDetectionValidator(DetectionValidator):
         self.finalize_metrics()
         self.print_results()
         model.float()
-        results = {**stats, **trainer.label_loss_items(self.loss.cpu() / len(self.dataloader), prefix='val')}
+        results = {**stats, **trainer.label_loss_items( ( (self.loss_head_1.cpu() + self.loss_head_2.cpu()) / 2) / len(self.dataloader), prefix='val')}
+        x = {k: round(float(v), 5) for k, v in results.items()}
+        print(x)
         return {k: round(float(v), 5) for k, v in results.items()}  # return results as 5 decimal place floats
 
 

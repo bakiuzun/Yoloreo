@@ -7,13 +7,18 @@ from utils import (load_image,image_to_label_path,get_label_info)
 import copy
 
 
-## MIN MAX CALCULATED WITHOUT THE 4th BAND
-MAX_MIN = {
-    "train_max":24377,
-    "train_min":0
-}
 
 
+class RandomPerspec:
+    ## augs for the METER ML dataset
+    def __init__(self) -> None:
+
+
+        # TODO random perspective
+        #self.transform = ## Compose ..... [...]
+        self.transform = None
+    def __call__(self, x):
+        return self.transform(x)
 
 class CliffDataset(Dataset):
     def __init__(self,mode="train"):
