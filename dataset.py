@@ -41,6 +41,7 @@ class CliffDataset(Dataset):
         im_files_patch2 = patch1 if stereo == False else patch2
 
         image_patch_1 = load_image(patch1)[:,:,:3]
+        #image_patch_1 = load_image(patch1)[:,:,:]
         max_patch_1 = np.max(image_patch_1)
         min_patch_1 = np.min(image_patch_1)
         #image_patch_1 = (image_patch_1 - MAX_MIN[f"{self.mode}_min"]) / (MAX_MIN[f"{self.mode}_max"] - MAX_MIN[f"{self.mode}_min"])
@@ -49,6 +50,7 @@ class CliffDataset(Dataset):
 
         if stereo:
             image_patch_2 = load_image(patch2)[:,:,:3]
+            #image_patch_2 = load_image(patch2)[:,:,:4]
             max_patch_2 = np.max(image_patch_2)
             min_patch_2 = np.min(image_patch_2)
             #image_patch_2 = (image_patch_2 - MAX_MIN[f"{self.mode}_min"]) / (MAX_MIN[f"{self.mode}_max"] - MAX_MIN[f"{self.mode}_min"])

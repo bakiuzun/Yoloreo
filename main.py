@@ -14,8 +14,8 @@ model_config = {
 }
 
 ## model def
-model = MyYolo(cfg=model_config["arch"])
-model.load_pretrained_weights(model_config["checkpoint"])
+model = MyYolo(cfg=model_config["arch"],weights=model_config["checkpoint"])
+#model.load_pretrained_weights(model_config["checkpoint"])
 model.nc = 1
 model.names = {0:"erosion"}
 

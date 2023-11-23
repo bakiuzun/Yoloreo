@@ -3,8 +3,10 @@ from ultralytics.nn.tasks import *
 from utils import parse_my_detection_model
 import copy
 
+
+# torch.Size([16, 576, 20, 20]) backbone out shape
 class MyYolo(BaseModel):
-    def __init__(self, cfg='yolov8n.yaml', ch=3, nc=None, verbose=False):  # model, input channels, number of classes
+    def __init__(self, cfg='yolov8n.yaml', ch=3, nc=None, verbose=False,weights=None):  # model, input channels, number of classes
         """Initialize the YOLOv8 detection model with the given config and parameters."""
 
         super().__init__()
@@ -46,10 +48,24 @@ class MyYolo(BaseModel):
             self.info()
             LOGGER.info('')
 
+        if weights != None:
+            self.load_pretrained_weights(weights)
+            self.enable_all_gradients()
 
+        input_size = 20
+
+        self.linear_query = torch.nn.Linear(input_size, input_size)
+        self.linear_key = torch.nn.Linear(input_size, input_size)
+        self.linear_value = torch.nn.Linear(input_size, input_size)
         self.head_1 = self.model[10:23]
         self.backbone = self.model[:10]
         self.head_2 = self.model[23:]
+
+
+
+    def enable_all_gradients(self):
+        for param in self.parameters():
+            param.requires_grad = True
     """
     method used to build the stride
     explanation: the super class call one forward with a lambda x to calculate the strides of the network
@@ -101,6 +117,7 @@ class MyYolo(BaseModel):
         #attended_feature_1 = self._cross_attention(x_2,x_1)
 
         x_1,y_1 = self._forward_head(x_1,y_1,head1=True)
+        #x_1,y_1 = self._forward_head(attended_feature_2,y_1,head1=True)
         #x_2,y_2 = self._forward_head(attended_feature_1,y_2,head1=False)
 
         data = {'x_1':x_1,'x_2':x_2}
@@ -158,11 +175,21 @@ class MyYolo(BaseModel):
     """
     def _cross_attention(self,feature_1,feature_2):
 
-         scores = torch.matmul(feature_1, feature_2.transpose(-2, -1))  # Dot product
-         attention_weights = torch.nn.functional.softmax(scores, dim=-1)
-         attended_feature_2 = torch.matmul(attention_weights, feature_2)
+        query = self.linear_query(feature_1)
+        key = self.linear_key(feature_2)
+        value = self.linear_value(feature_2)
 
-         return attended_feature_2
+        scores = torch.matmul(query, key.transpose(-2, -1))
+        attention_weights = torch.nn.functional.softmax(scores,dim=-1)
+        attended_feature_2 = torch.matmul(attention_weights, value)
+
+        """
+        scores = torch.matmul(feature_1, feature_2.transpose(-2, -1))  # Dot product
+        attention_weights = torch.nn.functional.softmax(scores, dim=-1)
+        attended_feature_2 = torch.matmul(attention_weights, feature_2)
+        """
+
+        return attended_feature_2
 
     def load_pretrained_weights(self,weights):
         #self.load(torch.load(weights))

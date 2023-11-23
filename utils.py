@@ -99,7 +99,7 @@ def get_min_max_dataset(mode="train"):
 
 
 
-def pred_one_image(model,image_path,MAX_MIN,mode="train",output_file=None):
+def pred_one_image(model,image_path,mode="train",output_file=None):
 
     if output_file == None:
        output_file = "pred_res.txt"
@@ -111,7 +111,6 @@ def pred_one_image(model,image_path,MAX_MIN,mode="train",output_file=None):
     image_max = np.max(image)
     image_min = np.min(image)
     image = ((image - image_min) / (image_max - image_min))
-    #image = (image - MAX_MIN[f"{mode}_min"]) / (MAX_MIN[f"{mode}_max"] - MAX_MIN[f"{mode}_min"])
 
     image = torch.tensor(image).float().permute(2, 0, 1)
     image = image.unsqueeze(0)

@@ -14,6 +14,7 @@ from ultralytics.utils.checks import check_amp
 from ultralytics.models.yolo.detect import DetectionPredictor
 import warnings
 from copy import deepcopy
+import shutil
 from pathlib import Path
 import copy
 from dataset import CliffDataset
@@ -30,7 +31,7 @@ class MyDetectionTrainer(BaseTrainer):
 
         self.device  = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        self.save_dir = Path("/share/projects/cicero/checkpoints_baki/")
+        self.init_save_dirs()
 
 
         ## class names and number of class should be attached too,  check main.py
@@ -45,11 +46,6 @@ class MyDetectionTrainer(BaseTrainer):
 
         self.metrics_head_1 = None
         self.metrics_head_2 = None
-
-
-        self.wdir = self.save_dir / 'weights'  # weights dir
-        self.last, self.best = self.wdir / 'last.pt', self.wdir / 'best.pt'  # checkpoint paths
-        self.csv = self.save_dir / 'results.csv'
 
         ## criterion init
         self.criterion_head_1 = v8DetectionLoss(self.model)
@@ -76,6 +72,33 @@ class MyDetectionTrainer(BaseTrainer):
 
 
         self.loss_names = ['Loss']
+
+
+    def init_save_dirs(self):
+        self.save_dir = Path(self.args.save_dir)
+        self.wdir = self.save_dir / 'weights_one_head'  # weights dir
+
+        counter = 1
+        while self.wdir.exists():
+            self.wdir = self.save_dir / f'weights_{counter}'  # Modify directory name
+            counter += 1
+
+        self.wdir.mkdir()
+
+        cfg_source = Path("cfg.yaml")
+        shutil.copy(cfg_source, self.wdir / "cfg.yaml")
+
+        model_arch = Path("myyolov8m.yaml")
+        shutil.copy(model_arch, self.wdir / "myyolov8m.yaml")
+
+        self.last, self.best = self.wdir / 'last.pt', self.wdir / 'best.pt'  # checkpoint paths
+
+        current_date = datetime.now().strftime("%d_%H-%M-%S")
+        #self.csv = Path(f'res/results_{current_date}.csv')
+        self.csv = self.wdir / "result.csv"
+
+
+
 
     def train(self):
         """Allow device='', device=None on Multi-GPU systems to default to device=0."""
@@ -169,25 +192,26 @@ class MyDetectionTrainer(BaseTrainer):
                     features = self.model(batch["img"].to(self.device))
 
                     patch_1_annotation,patch_2_annotation = self.train_dataset.retrieve_annotation(batch,self.device)
-
-                    batch['cls'] = torch.cat((patch_1_annotation['cls'], patch_2_annotation['cls']))
+                    batch['cls'] = patch_1_annotation['cls']
+                    #batch['cls'] = torch.cat((patch_1_annotation['cls'], patch_2_annotation['cls']))
 
                     self.loss_head_1, self.loss_items_head_1 = self.criterion_head_1(features["x_1"],patch_1_annotation)
-                    self.loss_head_2, self.loss_items_head_2 = self.criterion_head_2(features["x_2"],patch_2_annotation)
+                    #self.loss_head_2, self.loss_items_head_2 = self.criterion_head_2(features["x_2"],patch_2_annotation)
 
 
                     self.tloss_head_1 = (self.tloss_head_1 * i + self.loss_items_head_1) / (i + 1) if self.tloss_head_1 is not None \
                         else self.loss_items_head_1
 
-                    self.tloss_head_2 = (self.tloss_head_2 * i + self.loss_items_head_2) / (i + 1) if self.tloss_head_2 is not None \
-                        else self.loss_items_head_2
+                    #self.tloss_head_2 = (self.tloss_head_2 * i + self.loss_items_head_2) / (i + 1) if self.tloss_head_2 is not None \
+                        #else self.loss_items_head_2
 
-                    self.tloss =  (self.tloss_head_1 + self.tloss_head_2)  / 2
+                    #self.tloss =  (self.tloss_head_1 + self.tloss_head_2)  / 2
+                    self.tloss =  self.tloss_head_1
 
 
                 # Backward
-                #self.scaler.scale(self.loss_head_1).backward()
-                self.scaler.scale((self.loss_head_1 + self.loss_head_2) / 2 ).backward()
+                self.scaler.scale(self.loss_head_1).backward()
+                #self.scaler.scale((self.loss_head_1 + self.loss_head_2) / 2 ).backward()
 
                 # Optimize - https://pytorch.org/docs/master/notes/amp_examples.html
                 if ni - last_opt_step >= self.accumulate:
@@ -199,22 +223,9 @@ class MyDetectionTrainer(BaseTrainer):
                 loss_len = self.tloss.shape[0] if len(self.tloss.size()) else 1
                 losses = self.tloss if loss_len > 1 else torch.unsqueeze(self.tloss, 0)
 
-                #pbar.set_description(
-                 #       ('%11s' * 2 + '%11.4g' * (2 + loss_len)) %
-                  #      (f'{epoch + 1}/{self.epochs}', mem, *losses, batch['cls'].shape[0], batch['img'].shape[-1]))
-
                 pbar.set_description(
                        ('%11s' * 2 + '%11.4g' * (2 + loss_len)) %
                         (f'{epoch + 1}/{self.epochs}', mem, *losses, batch['cls'].shape[0], batch['img'].shape[-1]))
-                #loss_len_2 = self.tloss_head_2.shape[0] if len(self.tloss_head_2.size()) else 1
-                #losses_2 = self.tloss_head_2 if loss_len_2 > 1 else torch.unsqueeze(self.tloss_head_2, 0)
-
-
-                #print("INFO |",(('%11s' * 2 + '%11.4g' * (2 + loss_len)) %
-                        #(f'{epoch + 1}/{self.epochs}', mem, *losses, batch['cls'].shape[0], batch['img'].shape[-1])))
-
-                #print("HEAD 2 INFO |",(('%11s' * 2 + '%11.4g' * (2 + loss_len_2)) %
-                        #(f'{epoch + 1}/{self.epochs}', mem, *losses_2, batch['cls_2'].shape[0], batch['img'].shape[-1])))
 
             self.lr = {f'lr/pg{ir}': x['lr'] for ir, x in enumerate(self.optimizer.param_groups)}  # for loggers
 
@@ -273,7 +284,8 @@ class MyDetectionTrainer(BaseTrainer):
     def validate(self):
 
         metrics =  self.validator(trainer=self)
-        fitness = metrics.pop('fitness', -((self.loss_head_1.detach().cpu().numpy() + self.loss_head_2.detach().cpu().numpy()) / 2 ))  # use loss as fitness measure if not found
+        #fitness = metrics.pop('fitness', -((self.loss_head_1.detach().cpu().numpy() + self.loss_head_2.detach().cpu().numpy()) / 2 ))  # use loss as fitness measure if not found
+        fitness = metrics.pop('fitness', -self.loss_head_1.detach().cpu().numpy())
         if not self.best_fitness or self.best_fitness < fitness:
             self.best_fitness = fitness
         return metrics, fitness
@@ -303,8 +315,9 @@ class MyDetectionTrainer(BaseTrainer):
         if self.best_fitness == self.fitness:
             torch.save(ckpt, self.best)
 
-        if self.epoch + 1 == self.args.epochs:
-            torch.save(ckpt, self.last)
+
+        #if self.epoch + 1 == self.args.epochs:
+        #    torch.save(ckpt, self.last)
 
 
         """

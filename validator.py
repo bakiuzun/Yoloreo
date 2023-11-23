@@ -50,11 +50,10 @@ class MyDetectionValidator(DetectionValidator):
         self.args.half = self.device.type != 'cpu'  # force FP16 val during training
         #model = trainer.ema.ema or trainer.model
         model = trainer.model
-        #model = model.half() if self.args.half else model.float()
 
+        #model = model.half() if self.args.half else model.float()
         #self.loss_head_1 = torch.zeros_like(trainer.loss_items, device=trainer.device)
         #self.loss_head_2 = torch.zeros_like(trainer.loss_items, device=trainer.device)
-
         # 3, cls,bboxes, dl loss (Detection Focal Loss)
 
         self.loss_head_1 = torch.zeros(3).to(device=trainer.device)
@@ -75,34 +74,29 @@ class MyDetectionValidator(DetectionValidator):
             #batch = self.preprocess(batch)
 
             # Inference
-            #preds = model(batch['img'], augment=augment)
-
             features = model(batch['img'].to(trainer.device))
             preds_head_1 = features["x_1"]
-            preds_head_2 = features["x_2"]
+            #preds_head_2 = features["x_2"]
 
-
-            # Loss
-            #self.loss += criterion(batch, preds)[1]
-
-            # criterion[0] refers to the criterion of the first HEAD
             self.loss_head_1 += trainer.criterion_head_1(preds_head_1,patch_1_annotation)[1]
-            self.loss_head_2 += trainer.criterion_head_2(preds_head_2,patch_2_annotation)[1]
+            #self.loss_head_2 += trainer.criterion_head_2(preds_head_2,patch_2_annotation)[1]
 
             preds_head_1 = self.postprocess(preds_head_1)
-            preds_head_2 = self.postprocess(preds_head_2)
+            #preds_head_2 = self.postprocess(preds_head_2)
 
 
             img = batch["img"]
             batch_head_1 = batch
             batch_head_1["img"] = img[:,0]
             batch_head_1.update(patch_1_annotation)
-            self.update_metrics(preds_head_1, batch_head_1,head1=True)
+            self.update_metrics(preds_head_1, batch_head_1)
 
+            """
             batch_head_2 = batch
             batch_head_2["img"] = img[:,1]
             batch_head_2.update(patch_2_annotation)
-            self.update_metrics(preds_head_2, batch_head_2,head1=False)
+            self.update_metrics(preds_head_2, batch_head_2)
+            """
 
         stats = self.get_stats()
         self.check_stats(stats)
@@ -110,7 +104,8 @@ class MyDetectionValidator(DetectionValidator):
         self.finalize_metrics()
         self.print_results()
         model.float()
-        results = {**stats, **trainer.label_loss_items( ( (self.loss_head_1.cpu() + self.loss_head_2.cpu()) / 2) / len(self.dataloader), prefix='val')}
+        #results = {**stats, **trainer.label_loss_items( ( (self.loss_head_1.cpu() + self.loss_head_2.cpu()) / 2) / len(self.dataloader), prefix='val')}
+        results = {**stats, **trainer.label_loss_items(self.loss_head_1.cpu() / len(self.dataloader), prefix='val')}
         x = {k: round(float(v), 5) for k, v in results.items()}
         print(x)
         return {k: round(float(v), 5) for k, v in results.items()}  # return results as 5 decimal place floats
@@ -123,7 +118,6 @@ class MyDetectionValidator(DetectionValidator):
         self.names = model.names
         self.nc = len(model.names)
         self.metrics.names = self.names
-        #self.metrics.names = {'0':'erosion'}
         self.metrics.plot = self.args.plots
         self.confusion_matrix = ConfusionMatrix(nc=self.nc, conf=self.args.conf)
         self.seen = 0
@@ -133,7 +127,7 @@ class MyDetectionValidator(DetectionValidator):
 
 
 
-    def update_metrics(self, preds, batch,head1=True):
+    def update_metrics(self, preds, batch):
         """Metrics."""
         for si, pred in enumerate(preds):
             idx = batch['batch_idx'] == si
