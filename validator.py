@@ -56,7 +56,7 @@ class MyDetectionValidator(DetectionValidator):
         #self.loss_head_2 = torch.zeros_like(trainer.loss_items, device=trainer.device)
         # 3, cls,bboxes, dl loss (Detection Focal Loss)
 
-        self.loss_head_1 = torch.zeros(3).to(device=trainer.device)
+        self.loss_head_1 = torch.zeros_like(trainer.loss_items_head_1, device=trainer.device)
         self.loss_head_2 = torch.zeros(3).to(device=trainer.device)
 
         model.eval()
@@ -71,7 +71,8 @@ class MyDetectionValidator(DetectionValidator):
             patch_1_annotation,patch_2_annotation = self.dataset.retrieve_annotation(batch,self.device)
 
             # Preprocess
-            #batch = self.preprocess(batch)
+            batch['img'] = batch['img'].to(self.device, non_blocking=True).float() / 255
+            #batch['img'] = (batch['img'].half() if self.args.half else batch['img'].float()) / 255
 
             # Inference
             features = model(batch['img'].to(trainer.device))
@@ -106,8 +107,7 @@ class MyDetectionValidator(DetectionValidator):
         model.float()
         #results = {**stats, **trainer.label_loss_items( ( (self.loss_head_1.cpu() + self.loss_head_2.cpu()) / 2) / len(self.dataloader), prefix='val')}
         results = {**stats, **trainer.label_loss_items(self.loss_head_1.cpu() / len(self.dataloader), prefix='val')}
-        x = {k: round(float(v), 5) for k, v in results.items()}
-        print(x)
+
         return {k: round(float(v), 5) for k, v in results.items()}  # return results as 5 decimal place floats
 
 
@@ -132,11 +132,11 @@ class MyDetectionValidator(DetectionValidator):
         for si, pred in enumerate(preds):
             idx = batch['batch_idx'] == si
             cls = batch['cls'][idx]
-            cls = cls.unsqueeze(1)
+
             bbox = batch['bboxes'][idx]
             nl, npr = cls.shape[0], pred.shape[0]  # number of labels, predictions
             #shape = (batch['ori_shape'][si]) # 640,640
-            shape = (640,640)
+            shape = [640,640]
             correct_bboxes = torch.zeros(npr, self.niou, dtype=torch.bool, device=self.device)  # init
 
             self.seen += 1
@@ -153,7 +153,7 @@ class MyDetectionValidator(DetectionValidator):
                 pred[:, 5] = 0
             predn = pred.clone()
 
-            ops.scale_boxes(batch['img'][si].shape[1:], predn[:, :4], shape,ratio_pad=None,padding=False)  # native-space pred
+            #ops.scale_boxes(batch['img'][si].shape[1:], predn[:, :4], shape,ratio_pad=None,padding=False)  # native-space pred
 
             # Evaluate
             if nl:
@@ -161,7 +161,7 @@ class MyDetectionValidator(DetectionValidator):
 
                 tbox = ops.xywh2xyxy(bbox) * torch.tensor(
                     (width, height, width, height), device=self.device)  # target boxes
-                ops.scale_boxes(batch['img'][si].shape[1:], tbox, shape,ratio_pad=None,padding=False)  # native-space labels
+                #ops.scale_boxes(batch['img'][si].shape[1:], tbox, shape,ratio_pad=None,padding=False)  # native-space labels
 
                 labelsn = torch.cat((cls, tbox), 1)  # native-space labels
                 correct_bboxes = self._process_batch(predn, labelsn)
@@ -169,14 +169,6 @@ class MyDetectionValidator(DetectionValidator):
                 if self.args.plots:
                     self.confusion_matrix.process_batch(predn, labelsn)
             self.stats.append((correct_bboxes, pred[:, 4], pred[:, 5], cls.squeeze(-1)))  # (conf, pcls, tcls)
-
-            # Save
-            if self.args.save_json:
-                self.pred_to_json(predn, batch['im_file'][si])
-            if self.args.save_txt:
-                file = self.save_dir / 'labels' / f'{Path(batch["im_file"][si]).stem}.txt'
-                self.save_one_txt(predn, self.args.save_conf, shape, file)
-
 
     # preprocess is already done in the Dataset class
     def preprocess(self, batch):

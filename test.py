@@ -28,6 +28,14 @@ from utils import image_to_label_path
 
 
 df = pd.read_csv("csv/image_validation_split.csv")
+
+
+
+image_path = "/share/projects/cicero/objdet/dataset/CICERO_stereo/images/1_Varengeville_sur_Mer/201308191121316/patches_img1/tiles_201308191121316_00320_03520.png"
+label_path = image_to_label_path(image_path,True)
+save_image_using_label(image_path=image_path,label_path=label_path,save_path="x.png")
+
+"""
 for i in range(15,30):
     image_path = df.iloc[i]["patch1"]
     print(image_path)
@@ -36,3 +44,4 @@ for i in range(15,30):
     label_path = image_to_label_path(image_path,True)
 
     #save_image_using_label(image_path=image_path,label_path=label_path,save_path=f"test_{i}.png")
+"""

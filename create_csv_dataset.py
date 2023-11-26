@@ -4,7 +4,10 @@ from utils import image_to_label_path
 
 BASE_IMAGE_FILE_PATH = '/share/projects/cicero/objdet/dataset/CICERO_stereo/images/1_Varengeville_sur_Mer'
 BASE_LABEL_FILE_PATH = "/share/projects/cicero/objdet/dataset/CICERO_stereo/train_label/1_Varengeville_sur_Mer/"
-def write_to_csv(mode,dir_name,ratio_without_label=0.2):
+
+
+
+def write_to_csv(mode,dir_name,ratio_without_label=0.0):
 
     csv_file = f"{mode}_split.csv"
     stereo = dir_name.count("_") > 0
@@ -94,10 +97,12 @@ stereo_images_val= {'202106051121186_202106051121491': 144,'201706101120101_2017
 stereo_images_test = {'201802171130571_201802171132051': 113,'201510041102114_201510041102549': 98}
 
 #write_to_csv("image_train",'202107221109551_202107221110373')
+
 for i in stereo_images_train:write_to_csv("image_train",i)
-#for i in stereo_images_val:write_to_csv("image_validation",i)
-#for i in stereo_images_test:write_to_csv("image_test",i)
+for i in stereo_images_val:write_to_csv("image_validation",i)
+for i in stereo_images_test:write_to_csv("image_test",i)
+
 
 for i in mono_images_train:write_to_csv("image_train",i)
-#for i in mono_images_val:write_to_csv("image_validation",i)
-#for i in mono_images_test:write_to_csv("image_test",i)
+for i in mono_images_val:write_to_csv("image_validation",i)
+for i in mono_images_test:write_to_csv("image_test",i)

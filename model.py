@@ -48,15 +48,16 @@ class MyYolo(BaseModel):
             self.info()
             LOGGER.info('')
 
+
         if weights != None:
             self.load_pretrained_weights(weights)
             self.enable_all_gradients()
 
         input_size = 20
 
-        self.linear_query = torch.nn.Linear(input_size, input_size)
-        self.linear_key = torch.nn.Linear(input_size, input_size)
-        self.linear_value = torch.nn.Linear(input_size, input_size)
+        #self.linear_query = torch.nn.Linear(input_size, input_size)
+        #self.linear_key = torch.nn.Linear(input_size, input_size)
+        #self.linear_value = torch.nn.Linear(input_size, input_size)
         self.head_1 = self.model[10:23]
         self.backbone = self.model[:10]
         self.head_2 = self.model[23:]
@@ -87,22 +88,12 @@ class MyYolo(BaseModel):
         """
         if len(x) == 1:
 
-            x_2 = copy.deepcopy(x)
             y_1 = []
-            y_2 = []
-            x_1,y_1 = self._forward_backbone(x,y_1)
-            x_2,y_2 = self._forward_backbone(x_2,y_2)
-
-            attended_feature_2 = self._cross_attention(x_1,x_2)
-            attended_feature_1 = self._cross_attention(x_2,x_1)
-
-            x_1,y_1 = self._forward_head(attended_feature_2,y_1,head1=True)
-            x_2,y_2 = self._forward_head(attended_feature_1,y_2,head1=False)
-
-            #x_1,y_1 = self._forward_head(x_1,y_1,head1=True)
-
-            return x_1
+            x,y_1 = self._forward_backbone(x,y_1)
+            x,y_1 = self._forward_head(x,y_1,head1=True)
+            return x
         """
+
 
         y_1 = []
         y_2 = []
@@ -215,4 +206,4 @@ class MyYolo(BaseModel):
         csd = intersect_dicts(csd, self.state_dict())  # intersect
         self.load_state_dict(csd, strict=False)  # load
 
-        LOGGER.info(f'Transferred {len(csd)}/{len(self.state_dict())} items from pretrained weights')
+        LOGGER.info(f'Transferred {len(csd)}/{len(self.model.state_dict())} items from pretrained weights')

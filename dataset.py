@@ -6,7 +6,10 @@ import pandas as pd
 from utils import (load_image,image_to_label_path,get_label_info)
 import copy
 
-
+MAX_MIN = {
+    "min":0,
+    "max":24377
+}
 
 
 class RandomPerspec:
@@ -41,21 +44,24 @@ class CliffDataset(Dataset):
         im_files_patch2 = patch1 if stereo == False else patch2
 
         image_patch_1 = load_image(patch1)[:,:,:3]
-        #image_patch_1 = load_image(patch1)[:,:,:]
+        image_patch_1 = image_patch_1.astype(np.uint8)
         max_patch_1 = np.max(image_patch_1)
         min_patch_1 = np.min(image_patch_1)
-        #image_patch_1 = (image_patch_1 - MAX_MIN[f"{self.mode}_min"]) / (MAX_MIN[f"{self.mode}_max"] - MAX_MIN[f"{self.mode}_min"])
-        image_patch_1 = (image_patch_1 - min_patch_1) / (max_patch_1 - min_patch_1)
-        image_patch_1 = torch.tensor(image_patch_1).float().permute(2, 0, 1)
+        image_patch_1 = (image_patch_1 - MAX_MIN["min"]) / (MAX_MIN["max"] - MAX_MIN["min"]) * 255
+        #image_patch_1 = (image_patch_1 - min_patch_1) / (max_patch_1 - min_patch_1) * 255
+
+        image_patch_1 = ToTensor()(image_patch_1)
+        #image_patch_1 = torch.tensor(image_patch_1).float().permute(2, 0, 1)
 
         if stereo:
             image_patch_2 = load_image(patch2)[:,:,:3]
-            #image_patch_2 = load_image(patch2)[:,:,:4]
+            image_patch_2 = image_patch_2.astype(np.uint8)
             max_patch_2 = np.max(image_patch_2)
             min_patch_2 = np.min(image_patch_2)
-            #image_patch_2 = (image_patch_2 - MAX_MIN[f"{self.mode}_min"]) / (MAX_MIN[f"{self.mode}_max"] - MAX_MIN[f"{self.mode}_min"])
-            image_patch_2 = (image_patch_2 - min_patch_2) / (max_patch_2 - min_patch_2)
-            image_patch_2 = torch.tensor(image_patch_2).float().permute(2, 0, 1)
+            image_patch_2 = (image_patch_2 - MAX_MIN["min"]) / (MAX_MIN["max"] - MAX_MIN["min"]) * 255
+            #image_patch_2 = ((image_patch_2 - min_patch_2) / (max_patch_2 - min_patch_2)) * 255
+            image_patch_2 = ToTensor()(image_patch_2)
+            #image_patch_2 = torch.tensor(image_patch_2).float().permute(2, 0, 1)
         else:
             image_patch_2 = copy.deepcopy(image_patch_1)
 
@@ -64,7 +70,7 @@ class CliffDataset(Dataset):
 
         data = torch.cat([image_patch_1, image_patch_2], dim=0)
 
-        res = {"img":data,"stereo":stereo,"im_files_patch1":im_files_patch1,"im_files_patch2":im_files_patch2 }
+        res = {"img":data,"stereo":stereo,"im_files_patch1":im_files_patch1,"im_files_patch2":im_files_patch2}
 
         return res
 
@@ -105,11 +111,12 @@ class CliffDataset(Dataset):
 
 
         patch_1_annotation['batch_idx'] = torch.tensor(patch_1_annotation['batch_idx']).to(device)
-        patch_1_annotation['cls'] = torch.tensor(patch_1_annotation['cls']).to(device)
+
+        patch_1_annotation['cls'] = torch.tensor(np.array(patch_1_annotation['cls'])).to(device)
         patch_1_annotation['bboxes'] = torch.tensor(np.array(patch_1_annotation['bboxes'])).to(device)
 
         patch_2_annotation['batch_idx'] = torch.tensor(patch_2_annotation['batch_idx']).to(device)
-        patch_2_annotation['cls'] = torch.tensor(patch_2_annotation['cls']).to(device)
+        patch_2_annotation['cls'] = torch.tensor(np.array(patch_2_annotation['cls'])).to(device)
         patch_2_annotation['bboxes'] = torch.tensor(np.array(patch_2_annotation['bboxes'])).to(device)
 
         return patch_1_annotation,patch_2_annotation

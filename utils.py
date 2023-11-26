@@ -34,25 +34,19 @@ def image_to_label_path(img_file,patch1=True):
 
 def get_label_info(path,index):
 
-    bboxes = []
-    batch_idx = []
-    cls = []
+    bboxes = np.empty((0, 4))  # Initialize bboxes as an empty NumPy array with shape (0, 4)
+    batch_idx = np.array([], dtype=int)  # Initialize batch_idx as an empty NumPy array
+    cls = np.empty((0, 1), dtype=int)  # Initialize cls as an empty 2D NumPy array with a single column
 
     with open(path, 'r') as file:
-            # Read lines from the file
         lines = file.readlines()
 
         for line in lines:
             data = line.strip().split(',')
-            #cls.append(float(data[0])) # class
-            cls.append(0) # class
-            bboxes.append(np.array([float(data[1]),float(data[2]),float(data[3]),float(data[4])] ))
-            batch_idx.append(index)
-
-        bboxes = np.array(bboxes)
-        cls = np.array(cls)
-        batch_idx = np.array(batch_idx)
-
+            cls = np.vstack([cls, [0]])  # Append [0] as a single-row 2D array to cls
+            bbox_values = np.array([float(data[1]), float(data[2]), float(data[3]), float(data[4])])
+            bboxes = np.vstack([bboxes, bbox_values])  # Stack bbox_values vertically to bboxes array
+            batch_idx = np.append(batch_idx, index)  # Append index to batch_idx array
 
     return {"bboxes":bboxes,"cls":cls,"batch_idx":batch_idx}
 

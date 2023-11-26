@@ -48,7 +48,7 @@ class MyDetectionTrainer(BaseTrainer):
         self.metrics_head_2 = None
 
         ## criterion init
-        self.criterion_head_1 = v8DetectionLoss(self.model)
+        self.criterion_head_1 = v8DetectionLoss(de_parallel(model))
         self.criterion_head_2 = v8DetectionLoss(self.model)
 
         self.loss_head_1 = None
@@ -88,8 +88,8 @@ class MyDetectionTrainer(BaseTrainer):
         cfg_source = Path("cfg.yaml")
         shutil.copy(cfg_source, self.wdir / "cfg.yaml")
 
-        model_arch = Path("myyolov8m.yaml")
-        shutil.copy(model_arch, self.wdir / "myyolov8m.yaml")
+        model_arch = Path("yolov8.yaml")
+        shutil.copy(model_arch, self.wdir / "yolov8.yaml")
 
         self.last, self.best = self.wdir / 'last.pt', self.wdir / 'best.pt'  # checkpoint paths
 
@@ -107,10 +107,13 @@ class MyDetectionTrainer(BaseTrainer):
         self._setup_train(world_size)
         self._do_train(world_size)
 
+
+
     def _setup_train(self, world_size):
         """Builds dataloaders and optimizer on correct rank process."""
 
         self.model = self.model.to(self.device)
+
 
         # Check AMP
         self.amp = torch.tensor(self.args.amp).to(self.device)  # True or False
@@ -121,13 +124,14 @@ class MyDetectionTrainer(BaseTrainer):
         # Dataloaders
         batch_size = self.batch_size
 
-        self.train_loader =  DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=False,num_workers=self.args.workers)
-        self.validation_loader =  DataLoader(self.validation_dataset ,batch_size=batch_size * 2,shuffle=False, num_workers=self.args.workers)
+        self.train_loader =  DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True,num_workers=self.args.workers)
+        self.validation_loader =  DataLoader(self.validation_dataset ,batch_size=batch_size * 2,shuffle=True, num_workers=self.args.workers)
 
 
         ## Validation
         self.init_validator()
         metric_keys = self.validator.metrics.keys + self.label_loss_items(prefix='val')
+        self.metrics = dict(zip(metric_keys, [0] * len(metric_keys)))
         self.metrics_head_1 = dict(zip(metric_keys, [0] * len(metric_keys)))
         self.metrics_head_2 = dict(zip(metric_keys, [0] * len(metric_keys)))
         #self.ema = ModelEMA(self.model)
@@ -189,9 +193,12 @@ class MyDetectionTrainer(BaseTrainer):
 
                 # Forward
                 with torch.cuda.amp.autocast(self.amp):
+                    batch['img'] = batch['img'].to(self.device, non_blocking=True).float() / 255
+
                     features = self.model(batch["img"].to(self.device))
 
                     patch_1_annotation,patch_2_annotation = self.train_dataset.retrieve_annotation(batch,self.device)
+
                     batch['cls'] = patch_1_annotation['cls']
                     #batch['cls'] = torch.cat((patch_1_annotation['cls'], patch_2_annotation['cls']))
 
@@ -318,17 +325,3 @@ class MyDetectionTrainer(BaseTrainer):
 
         #if self.epoch + 1 == self.args.epochs:
         #    torch.save(ckpt, self.last)
-
-
-        """
-        ckpt = {
-            'epoch': self.epoch,
-            'model': deepcopy(de_parallel(self.model)).half(),
-            'train_args': vars(self.args),  # save as dict
-            'date': datetime.now().isoformat()
-
-        }
-        """
-
-        # Save last and best
-        #torch.save(ckpt,f"/share/projects/cicero/checkpoints_baki/cross_lr_{self.args.lrf}_epoch_{self.epoch}.pt")
