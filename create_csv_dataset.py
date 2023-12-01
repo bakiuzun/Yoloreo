@@ -1,6 +1,9 @@
 import os
 import csv
 from utils import image_to_label_path
+import pandas as pd
+import cv2
+import numpy as np
 
 BASE_IMAGE_FILE_PATH = '/share/projects/cicero/objdet/dataset/CICERO_stereo/images/1_Varengeville_sur_Mer'
 BASE_LABEL_FILE_PATH = "/share/projects/cicero/objdet/dataset/CICERO_stereo/train_label/1_Varengeville_sur_Mer/"
@@ -77,9 +80,9 @@ def get_second_patch_file_path(dir_name,file,patch_dir):
     return second_file_path
 
 
-mono_images_train = { '201401131052058': 78, '201701261109474': 11, '202304241128373': 57,
+mono_images_train = {'201401131052058': 78, '201701261109474': 11, '202304241128373': 57,
                       '201906221113226': 37, '201905141113275': 88, '201707071112468': 72,
-                      '201308191121316': 21, '202110141114204': 67}
+                      '202208271125349': 21, '202110141114204': 67}
 mono_images_val = {'202106131109358': 54}
 mono_images_test  = {'202208271125349': 74}
 
@@ -99,10 +102,120 @@ stereo_images_test = {'201802171130571_201802171132051': 113,'201510041102114_20
 #write_to_csv("image_train",'202107221109551_202107221110373')
 
 for i in stereo_images_train:write_to_csv("image_train",i)
-for i in stereo_images_val:write_to_csv("image_validation",i)
+for i in stereo_images_val:write_to_csv("image_valid",i)
 for i in stereo_images_test:write_to_csv("image_test",i)
 
 
 for i in mono_images_train:write_to_csv("image_train",i)
-for i in mono_images_val:write_to_csv("image_validation",i)
+for i in mono_images_val:write_to_csv("image_valid",i)
 for i in mono_images_test:write_to_csv("image_test",i)
+
+
+
+
+def ret_box(path):
+    """
+    tiny change compared to the method in the utils file
+    """
+    bboxes = []  # Initialize bboxes as an empty NumPy array with shape (0, 4)
+
+    with open(path, 'r') as file:
+        lines = file.readlines()
+
+        for line in lines:
+            data = line.strip().split(',')
+            bbox_values = [float(data[1]), float(data[2]), float(data[3]), float(data[4]),"erosion"]
+            bboxes.append(bbox_values)
+
+    return bboxes
+
+
+def create_new_image_path(base_image_path,index):
+    splitted = base_image_path.split("/")
+    last_name = splitted[-1]
+    last_name_splitted = last_name.split("_")
+    last_name_splitted[0] = last_name_splitted[0] + f"aug{index}"
+
+    splitted[-1] = '_'.join(last_name_splitted)
+
+    return "/".join(splitted)
+
+def augment_and_save(csv_path):
+    import albumentations as A
+    from utils import (get_label_info,image_to_label_path,save_image_using_label)
+    df = pd.read_csv(csv_path)
+
+    # THE AUGS
+    transform = A.Compose([
+        A.ShiftScaleRotate(p=0.5),
+        A.HorizontalFlip(p=0.5),
+        A.VerticalFlip(p=0.5),
+    ], bbox_params=A.BboxParams(format='yolo'))
+
+
+    for i in range(len(df)):
+        row = df.iloc[i]
+        image_path = row["patch1"]
+
+        image = np.array(cv2.imread(image_path,cv2.IMREAD_UNCHANGED))
+        image = image[:,:,:3]
+        label = image_to_label_path(image_path,True)
+
+        bboxes = ret_box(label)
+
+        for i in range(10):
+            new_image_path =  create_new_image_path(image_path,i)
+
+
+            label = image_to_label_path(new_image_path,True)
+
+            transformed = transform(image=image,bboxes=bboxes)
+            transformed_bboxes = transformed['bboxes']
+            transformed_image = transformed["image"]
+
+            with open(label,'w') as new_annot:
+                for boxe in transformed_bboxes:
+                    thing_to_save = f"0,{boxe[0]},{boxe[1]},{boxe[2]},{boxe[3]}\n"
+                    new_annot.write(thing_to_save)
+
+                new_annot.close()
+
+            cv2.imwrite(new_image_path,transformed_image)
+
+#augment_and_save('dataset_for_aug_split.csv')
+
+
+"""
+df = pd.read_csv("dataset_complet.csv")
+
+means = []
+for i in range(len(df)):
+    image = df.iloc[i]["patch1"]
+    image = np.array(cv2.imread(image,cv2.IMREAD_UNCHANGED))
+    image = image[:,:,:3]
+    mean = np.mean(image,axis=(0,1))
+    means.append(mean)
+
+
+means = np.mean(means,axis=0)
+variances = []
+
+
+for i in range(len(df)):
+    image = df.iloc[i]["patch1"]
+    image = np.array(cv2.imread(image,cv2.IMREAD_UNCHANGED))
+    image = image[:,:,:3]
+    variance = np.mean((image - means) ** 2, axis=(0, 1))
+    variances.append(variance)
+
+
+
+
+overall_variance = np.mean(variances, axis=0)
+overall_std_deviation = np.sqrt(overall_variance)
+
+
+print("MEAN ",means)
+print("STD ",overall_std_deviation)
+
+"""

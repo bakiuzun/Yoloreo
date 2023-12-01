@@ -41,21 +41,25 @@ class MyDetectionTrainer(BaseTrainer):
 
         self.train_dataset = CliffDataset(mode="train")
 
-        self.validation_dataset = CliffDataset(mode="validation")
+        self.validation_dataset = CliffDataset(mode="valid")
         self.validator = None # class Validator
 
         self.metrics_head_1 = None
         self.metrics_head_2 = None
+        self.metrics_both = None  # when there is no stereo image
 
         ## criterion init
         self.criterion_head_1 = v8DetectionLoss(de_parallel(model))
-        self.criterion_head_2 = v8DetectionLoss(self.model)
+        self.criterion_head_2 = v8DetectionLoss(de_parallel(model))
 
         self.loss_head_1 = None
         self.loss_head_2 = None
 
-        self.lf = None
+        self.loss_items_head_1 = None
+        self.loss_items_head_2 = None
+        self.loss_items_both = None
 
+        self.lf = None
         self.scheduler = None
 
         self.start_epoch = 0
@@ -76,7 +80,7 @@ class MyDetectionTrainer(BaseTrainer):
 
     def init_save_dirs(self):
         self.save_dir = Path(self.args.save_dir)
-        self.wdir = self.save_dir / 'weights_one_head'  # weights dir
+        self.wdir = self.save_dir / 'weights_0'  # weights dir
 
         counter = 1
         while self.wdir.exists():
@@ -114,6 +118,21 @@ class MyDetectionTrainer(BaseTrainer):
 
         self.model = self.model.to(self.device)
 
+          # Freeze layers
+        freeze_list = self.args.freeze if isinstance(
+            self.args.freeze, list) else range(self.args.freeze) if isinstance(self.args.freeze, int) else []
+        always_freeze_names = ['.dfl']  # always freeze these layers
+        freeze_layer_names = [f'model.{x}.' for x in freeze_list] + always_freeze_names
+        for k, v in self.model.named_parameters():
+            # v.register_hook(lambda x: torch.nan_to_num(x))  # NaN to 0 (commented for erratic training results)
+            if any(x in k for x in freeze_layer_names):
+                LOGGER.info(f"Freezing layer '{k}'")
+                v.requires_grad = False
+            elif not v.requires_grad:
+                LOGGER.info(f"WARNING ⚠️ setting 'requires_grad=True' for frozen layer '{k}'. "
+                            'See ultralytics.engine.trainer for customization of frozen layers.')
+                v.requires_grad = True
+
 
         # Check AMP
         self.amp = torch.tensor(self.args.amp).to(self.device)  # True or False
@@ -131,9 +150,9 @@ class MyDetectionTrainer(BaseTrainer):
         ## Validation
         self.init_validator()
         metric_keys = self.validator.metrics.keys + self.label_loss_items(prefix='val')
-        self.metrics = dict(zip(metric_keys, [0] * len(metric_keys)))
         self.metrics_head_1 = dict(zip(metric_keys, [0] * len(metric_keys)))
         self.metrics_head_2 = dict(zip(metric_keys, [0] * len(metric_keys)))
+        self.metrics_both = dict(zip(metric_keys, [0] * len(metric_keys)))
         #self.ema = ModelEMA(self.model)
 
         # Optimizer
@@ -199,26 +218,26 @@ class MyDetectionTrainer(BaseTrainer):
 
                     patch_1_annotation,patch_2_annotation = self.train_dataset.retrieve_annotation(batch,self.device)
 
-                    batch['cls'] = patch_1_annotation['cls']
-                    #batch['cls'] = torch.cat((patch_1_annotation['cls'], patch_2_annotation['cls']))
+                    #batch['cls'] = patch_1_annotation['cls']
+                    batch['cls'] = torch.cat((patch_1_annotation['cls'], patch_2_annotation['cls']))
 
                     self.loss_head_1, self.loss_items_head_1 = self.criterion_head_1(features["x_1"],patch_1_annotation)
-                    #self.loss_head_2, self.loss_items_head_2 = self.criterion_head_2(features["x_2"],patch_2_annotation)
+                    self.loss_head_2, self.loss_items_head_2 = self.criterion_head_2(features["x_2"],patch_2_annotation)
 
 
                     self.tloss_head_1 = (self.tloss_head_1 * i + self.loss_items_head_1) / (i + 1) if self.tloss_head_1 is not None \
                         else self.loss_items_head_1
 
-                    #self.tloss_head_2 = (self.tloss_head_2 * i + self.loss_items_head_2) / (i + 1) if self.tloss_head_2 is not None \
-                        #else self.loss_items_head_2
+                    self.tloss_head_2 = (self.tloss_head_2 * i + self.loss_items_head_2) / (i + 1) if self.tloss_head_2 is not None \
+                        else self.loss_items_head_2
 
-                    #self.tloss =  (self.tloss_head_1 + self.tloss_head_2)  / 2
-                    self.tloss =  self.tloss_head_1
+                    self.tloss =  (self.tloss_head_1 + self.tloss_head_2)  / 2
+                    #self.tloss =  self.tloss_head_1
 
 
                 # Backward
-                self.scaler.scale(self.loss_head_1).backward()
-                #self.scaler.scale((self.loss_head_1 + self.loss_head_2) / 2 ).backward()
+                #self.scaler.scale(self.loss_head_1).backward()
+                self.scaler.scale((self.loss_head_1 + self.loss_head_2) / 2 ).backward()
 
                 # Optimize - https://pytorch.org/docs/master/notes/amp_examples.html
                 if ni - last_opt_step >= self.accumulate:
@@ -292,7 +311,9 @@ class MyDetectionTrainer(BaseTrainer):
 
         metrics =  self.validator(trainer=self)
         #fitness = metrics.pop('fitness', -((self.loss_head_1.detach().cpu().numpy() + self.loss_head_2.detach().cpu().numpy()) / 2 ))  # use loss as fitness measure if not found
-        fitness = metrics.pop('fitness', -self.loss_head_1.detach().cpu().numpy())
+        fitness_head_1 = metrics.pop('fitness', -self.loss_head_1.detach().cpu().numpy())
+        fitness_head_2 = metrics.pop('fitness', -self.loss_head_2.detach().cpu().numpy())
+        fitness = (fitness_head_1 + fitness_head_2) / 2
         if not self.best_fitness or self.best_fitness < fitness:
             self.best_fitness = fitness
         return metrics, fitness

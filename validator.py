@@ -48,23 +48,19 @@ class MyDetectionValidator(DetectionValidator):
 
         self.device = trainer.device
         self.args.half = self.device.type != 'cpu'  # force FP16 val during training
-        #model = trainer.ema.ema or trainer.model
-        model = trainer.model
 
-        #model = model.half() if self.args.half else model.float()
-        #self.loss_head_1 = torch.zeros_like(trainer.loss_items, device=trainer.device)
-        #self.loss_head_2 = torch.zeros_like(trainer.loss_items, device=trainer.device)
-        # 3, cls,bboxes, dl loss (Detection Focal Loss)
+        model = trainer.model
+        model = model.float()
 
         self.loss_head_1 = torch.zeros_like(trainer.loss_items_head_1, device=trainer.device)
-        self.loss_head_2 = torch.zeros(3).to(device=trainer.device)
+        self.loss_head_1 = torch.zeros_like(trainer.loss_items_head_2, device=trainer.device)
 
         model.eval()
-
 
         bar = TQDM(self.dataloader, desc=self.get_desc(), total=len(self.dataloader))
         self.init_metrics(de_parallel(model))
         self.jdict = []  # empty before each val
+
         for batch_i, batch in enumerate(bar):
             self.batch_i = batch_i
 
@@ -72,37 +68,35 @@ class MyDetectionValidator(DetectionValidator):
 
             # Preprocess
             batch['img'] = batch['img'].to(self.device, non_blocking=True).float() / 255
-            #batch['img'] = (batch['img'].half() if self.args.half else batch['img'].float()) / 255
 
             # Inference
             features = model(batch['img'].to(trainer.device))
             preds_head_1 = features["x_1"]
-            #preds_head_2 = features["x_2"]
+            preds_head_2 = features["x_2"]
 
             self.loss_head_1 += trainer.criterion_head_1(preds_head_1,patch_1_annotation)[1]
-            #self.loss_head_2 += trainer.criterion_head_2(preds_head_2,patch_2_annotation)[1]
+            self.loss_head_2 += trainer.criterion_head_2(preds_head_2,patch_2_annotation)[1]
 
             preds_head_1 = self.postprocess(preds_head_1)
-            #preds_head_2 = self.postprocess(preds_head_2)
+            preds_head_2 = self.postprocess(preds_head_2)
 
 
             img = batch["img"]
             batch_head_1 = batch
             batch_head_1["img"] = img[:,0]
             batch_head_1.update(patch_1_annotation)
-            self.update_metrics(preds_head_1, batch_head_1)
+            self.update_metrics(preds_head_1, batch_head_1,head_name="head1")
 
-            """
+
             batch_head_2 = batch
             batch_head_2["img"] = img[:,1]
             batch_head_2.update(patch_2_annotation)
-            self.update_metrics(preds_head_2, batch_head_2)
-            """
+            self.update_metrics(preds_head_2, batch_head_2,head_name="head2")
 
-        stats = self.get_stats()
-        self.check_stats(stats)
-        #self.speed = dict(zip(self.speed.keys(), (x.t / len(self.dataloader.dataset) * 1E3 for x in dt)))
-        self.finalize_metrics()
+
+        stats_head_1 = self.get_stats(head_name="head1")
+        stats_head_2 = self.get_stats(head_name="head2")
+
         self.print_results()
         model.float()
         #results = {**stats, **trainer.label_loss_items( ( (self.loss_head_1.cpu() + self.loss_head_2.cpu()) / 2) / len(self.dataloader), prefix='val')}
@@ -123,11 +117,27 @@ class MyDetectionValidator(DetectionValidator):
         self.seen = 0
         self.jdict = []
         self.stats = []
+        self.stats_head_1 = []
+        self.stats_head_2 = []
 
 
 
 
-    def update_metrics(self, preds, batch):
+    def get_stats(self,head_name="head1"):
+        """Returns metrics statistics and results dictionary."""
+
+        if head_name == "head1":
+            stats = [torch.cat(x, 0).cpu().numpy() for x in zip(*self.stats_head_1)]  # to numpy
+        elif head_name == "head2":
+            stats = [torch.cat(x, 0).cpu().numpy() for x in zip(*self.stats_head_2)]  # to numpy
+
+        if len(stats) and stats[0].any():
+            self.metrics.process(*stats)
+        self.nt_per_class = np.bincount(stats[-1].astype(int),minlength=self.nc)  # number of targets per class
+        return self.metrics.results_dict
+
+
+    def update_metrics(self, preds, batch,head_name="head1"):
         """Metrics."""
         for si, pred in enumerate(preds):
             idx = batch['batch_idx'] == si
@@ -136,16 +146,18 @@ class MyDetectionValidator(DetectionValidator):
             bbox = batch['bboxes'][idx]
             nl, npr = cls.shape[0], pred.shape[0]  # number of labels, predictions
             #shape = (batch['ori_shape'][si]) # 640,640
-            shape = [640,640]
+            shape = (640,640)
             correct_bboxes = torch.zeros(npr, self.niou, dtype=torch.bool, device=self.device)  # init
 
             self.seen += 1
 
             if npr == 0:
                 if nl:
-                    self.stats.append((correct_bboxes, *torch.zeros((2, 0), device=self.device), cls.squeeze(-1)))
-                    if self.args.plots:
-                        self.confusion_matrix.process_batch(detections=None, labels=cls.squeeze(-1))
+                    if head_name == "head1":
+                        self.stats_head_1.append((correct_bboxes, *torch.zeros((2, 0), device=self.device), cls.squeeze(-1)))
+
+                    elif head_name == "head2":
+                        self.stats_head_2.append((correct_bboxes, *torch.zeros((2, 0), device=self.device), cls.squeeze(-1)))
                 continue
 
             # Predictions
@@ -168,7 +180,12 @@ class MyDetectionValidator(DetectionValidator):
                 # TODO: maybe remove these `self.` arguments as they already are member variable
                 if self.args.plots:
                     self.confusion_matrix.process_batch(predn, labelsn)
-            self.stats.append((correct_bboxes, pred[:, 4], pred[:, 5], cls.squeeze(-1)))  # (conf, pcls, tcls)
+
+
+            if head_name == "head1":
+                self.stats_head_1.append((correct_bboxes, pred[:, 4], pred[:, 5], cls.squeeze(-1)))  # (conf, pcls, tcls)
+            elif head_name == "head2":
+                self.stats_head_2.append((correct_bboxes, pred[:, 4], pred[:, 5], cls.squeeze(-1)))  # (conf, pcls, tcls)
 
     # preprocess is already done in the Dataset class
     def preprocess(self, batch):

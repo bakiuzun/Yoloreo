@@ -141,7 +141,34 @@ def save_image_using_label(image_path,label_path,save_path):
 
 
 
+def get_mean_std_dataset(csv_path):
+    x = pd.read_csv(csv_path)
 
+    means = []
+    variance = []
+
+    for i in range(len(x)):
+        row = x.iloc[i]
+        img_1 = row["patch1"]
+        img_1 = np.array(cv2.imread(img_1, cv2.IMREAD_UNCHANGED))
+        means.append(np.mean(img_1[:,:,:3], axis=(0,1)))
+
+    mu_rgb = np.mean(means, axis=0)
+
+    variances = []
+
+
+    for i in range(2):
+        row = x.iloc[i]
+        img_1 = row["patch1"]
+        img_1 = np.array(cv2.imread(img_1, cv2.IMREAD_UNCHANGED))
+
+        var = np.mean((img_1[:,:,:3] - mu_rgb) ** 2, axis=(0,1))
+        variances.append(var)
+
+    std_rgb = np.sqrt(np.mean(variances, axis=0))  # std_rgb.shape == (3,)
+    print("MEAN: ",mu_rgb)
+    print("STD: ",std_rgb)
 
 
 

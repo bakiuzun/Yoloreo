@@ -12,6 +12,9 @@ MAX_MIN = {
 }
 
 
+std =  [418.56,553.68,517.83]
+mean =  [817.62,901.2,764.64]
+
 class RandomPerspec:
     ## augs for the METER ML dataset
     def __init__(self) -> None:
@@ -44,24 +47,23 @@ class CliffDataset(Dataset):
         im_files_patch2 = patch1 if stereo == False else patch2
 
         image_patch_1 = load_image(patch1)[:,:,:3]
-        image_patch_1 = image_patch_1.astype(np.uint8)
-        max_patch_1 = np.max(image_patch_1)
-        min_patch_1 = np.min(image_patch_1)
-        image_patch_1 = (image_patch_1 - MAX_MIN["min"]) / (MAX_MIN["max"] - MAX_MIN["min"]) * 255
-        #image_patch_1 = (image_patch_1 - min_patch_1) / (max_patch_1 - min_patch_1) * 255
+        image_patch_1 = image_patch_1.astype("float")
 
+        minn = np.min(image_patch_1)
+        maxx = np.max(image_patch_1)
+        image_patch_1 = (image_patch_1 - minn) / (maxx - minn)
         image_patch_1 = ToTensor()(image_patch_1)
-        #image_patch_1 = torch.tensor(image_patch_1).float().permute(2, 0, 1)
+
 
         if stereo:
             image_patch_2 = load_image(patch2)[:,:,:3]
-            image_patch_2 = image_patch_2.astype(np.uint8)
-            max_patch_2 = np.max(image_patch_2)
-            min_patch_2 = np.min(image_patch_2)
-            image_patch_2 = (image_patch_2 - MAX_MIN["min"]) / (MAX_MIN["max"] - MAX_MIN["min"]) * 255
-            #image_patch_2 = ((image_patch_2 - min_patch_2) / (max_patch_2 - min_patch_2)) * 255
+            image_patch_2 = image_patch_2.astype("float")
+
+            minn = np.min(image_patch_2)
+            maxx = np.max(image_patch_2)
+            image_patch_2 = (image_patch_2 - minn) / (maxx - minn)
             image_patch_2 = ToTensor()(image_patch_2)
-            #image_patch_2 = torch.tensor(image_patch_2).float().permute(2, 0, 1)
+
         else:
             image_patch_2 = copy.deepcopy(image_patch_1)
 
@@ -111,7 +113,6 @@ class CliffDataset(Dataset):
 
 
         patch_1_annotation['batch_idx'] = torch.tensor(patch_1_annotation['batch_idx']).to(device)
-
         patch_1_annotation['cls'] = torch.tensor(np.array(patch_1_annotation['cls'])).to(device)
         patch_1_annotation['bboxes'] = torch.tensor(np.array(patch_1_annotation['bboxes'])).to(device)
 
