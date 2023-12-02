@@ -39,6 +39,8 @@ class MyDetectionValidator(DetectionValidator):
         ## if head 1 False: DO validation using only the output of the second head,
         super().__init__(dataloader, save_dir, args)
 
+        self.metrics_head1 = None
+        self.metrics_head2 = None
         self.dataset = dataset
 
     @smart_inference_mode()
