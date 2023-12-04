@@ -2,7 +2,7 @@ import torch
 from ultralytics.nn.tasks import *
 from utils import parse_my_detection_model
 import copy
-
+import numpy as np
 
 # torch.Size([16, 576, 20, 20]) backbone out shape
 class MyYolo(BaseModel):
@@ -55,9 +55,10 @@ class MyYolo(BaseModel):
 
         input_size = 20
 
-        #self.linear_query = torch.nn.Linear(input_size, input_size)
-        #self.linear_key = torch.nn.Linear(input_size, input_size)
-        #self.linear_value = torch.nn.Linear(input_size, input_size)
+        self.linear_query = torch.nn.Linear(input_size, input_size)
+        self.linear_key = torch.nn.Linear(input_size, input_size)
+        self.linear_value = torch.nn.Linear(input_size, input_size)
+
         self.head_1 = self.model[10:23]
         self.backbone = self.model[:10]
         self.head_2 = self.model[23:]
@@ -78,22 +79,40 @@ class MyYolo(BaseModel):
         x = super()._predict_once(x, profile, visualize)
         return x
 
-    def _predict_once(self, x, profile=False, visualize=False):
 
-        ## refer to _build_stride comment
-        ## will not enter here now debugging...
-        if self.first_forward:
-            return self._build_stride(x,profile,visualize)
+    def forward(self,x):
 
-        """
-        if len(x) == 1:
+        return self.predict(x)
 
-            y_1 = []
-            x,y_1 = self._forward_backbone(x,y_1)
-            x,y_1 = self._forward_head(x,y_1,head1=True)
-            return x
-        """
+    def _predict_once(self, x):
 
+        mono_res = None
+
+
+        if  isinstance(x,dict):
+            ## prediction
+            mono_y  = []
+            mono = x["mono_images"]
+
+            mono,mono_y = self._forward_backbone(mono,mono_y)
+            attended_feature = self._cross_attention(mono,mono)
+
+            mono_1,_ = self._forward_head(attended_feature,mono_y,head1=True)
+            mono_2,_ = self._forward_head(attended_feature,mono_y,head1=False)
+
+            concatenated_tensors = []
+
+            # Concatenate x_2[i][j] with x_1[i][j] for i=1 and j=0 to j=2 along the batch axis
+            for j in range(3):  # j=0, 1, 2
+                concatenated_tensor = torch.cat((mono_1[1][j], mono_2[1][j]), dim=1)
+                concatenated_tensors.append(concatenated_tensor)
+
+            # Concatenate the list of tensors along the batch axis (dim=0)
+            first_dim = torch.cat((mono_1[0], mono_2[0]), dim=2)
+            mono_res = [first_dim,[concatenated_tensors]]
+
+
+            x = x["stereo_images"]
 
         y_1 = []
         y_2 = []
@@ -102,16 +121,16 @@ class MyYolo(BaseModel):
 
 
         x_1,y_1 = self._forward_backbone(x_1,y_1)
-        #x_2,y_2 = self._forward_backbone(x_2,y_2)
+        x_2,y_2 = self._forward_backbone(x_2,y_2)
 
-        #attended_feature_2 = self._cross_attention(x_1,x_2)
-        #attended_feature_1 = self._cross_attention(x_2,x_1)
+        attended_feature_2 = self._cross_attention(x_1,x_2)
+        attended_feature_1 = self._cross_attention(x_2,x_1)
 
-        x_1,y_1 = self._forward_head(x_1,y_1,head1=True)
-        #x_1,y_1 = self._forward_head(attended_feature_2,y_1,head1=True)
-        #x_2,y_2 = self._forward_head(attended_feature_1,y_2,head1=False)
+        x_1,y_1 = self._forward_head(attended_feature_2,y_1,head1=True)
+        x_2,y_2 = self._forward_head(attended_feature_1,y_2,head1=False)
 
-        data = {'x_1':x_1,'x_2':x_2}
+
+        data = {'x_1':x_1,'x_2':x_2,"mono_res":mono_res}
 
 
         return data
