@@ -80,9 +80,9 @@ class MyYolo(BaseModel):
         return x
 
 
-    def forward(self,x):
+    def forward(self, x, *args, **kwargs):
 
-        return self.predict(x)
+        return self._predict_once(x)
 
     def _predict_once(self, x):
 
@@ -94,21 +94,23 @@ class MyYolo(BaseModel):
             mono_y  = []
             mono = x["mono_images"]
 
-            mono,mono_y = self._forward_backbone(mono,mono_y)
-            attended_feature = self._cross_attention(mono,mono)
 
-            mono_1,_ = self._forward_head(attended_feature,mono_y,head1=True)
-            mono_2,_ = self._forward_head(attended_feature,mono_y,head1=False)
+            mono,mono_y = self._forward_backbone(mono,mono_y)
+
+            #attended_feature = self._cross_attention(mono,mono)
+
+            mono_1,_ = self._forward_head(mono,mono_y,head1=True)
+            mono_2,_ = self._forward_head(mono,mono_y,head1=False)
 
             concatenated_tensors = []
 
             # Concatenate x_2[i][j] with x_1[i][j] for i=1 and j=0 to j=2 along the batch axis
             for j in range(3):  # j=0, 1, 2
-                concatenated_tensor = torch.cat((mono_1[1][j], mono_2[1][j]), dim=1)
+                concatenated_tensor = torch.cat((mono_1[1][j], mono_2[1][j]), dim=0)
                 concatenated_tensors.append(concatenated_tensor)
 
             # Concatenate the list of tensors along the batch axis (dim=0)
-            first_dim = torch.cat((mono_1[0], mono_2[0]), dim=2)
+            first_dim = torch.cat((mono_1[0], mono_2[0]), dim=1)
             mono_res = [first_dim,[concatenated_tensors]]
 
 

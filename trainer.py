@@ -66,8 +66,14 @@ class MyDetectionTrainer(BaseTrainer):
         self.epochs = self.args.epochs
 
         # Epoch level metrics
-        self.best_fitness = None
-        self.fitness = None
+        self.best_fitness_head1 = None
+        self.best_fitness_head2 = None
+        self.best_fitness_both = None
+
+        self.fitness_head1 = None
+        self.fitness_head2 = None
+        self.fitness_both = None
+
         self.batch_size = self.args.batch
 
         self.tloss = None
@@ -144,7 +150,7 @@ class MyDetectionTrainer(BaseTrainer):
         batch_size = self.batch_size
 
         self.train_loader =  DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True,num_workers=self.args.workers)
-        self.validation_loader =  DataLoader(self.validation_dataset ,batch_size=batch_size * 2,shuffle=True, num_workers=self.args.workers)
+        self.validation_loader =  DataLoader(self.validation_dataset ,batch_size=100,shuffle=True, num_workers=self.args.workers)
 
 
         ## Validation
@@ -212,6 +218,7 @@ class MyDetectionTrainer(BaseTrainer):
 
                 # Forward
                 with torch.cuda.amp.autocast(self.amp):
+
                     batch['img'] = batch['img'].to(self.device, non_blocking=True).float() / 255
 
                     features = self.model(batch["img"].to(self.device))
@@ -260,20 +267,20 @@ class MyDetectionTrainer(BaseTrainer):
                 self.scheduler.step()
 
 
-            self.metrics, self.fitness = self.validate()
-            self.save_metrics(metrics={**self.label_loss_items(self.tloss), **self.metrics, **self.lr})
+            self.metrics_head_1,self.metrics_head_2, self.metrics_both = self.validate()
+
+            self.save_metrics(metrics={**self.label_loss_items(self.tloss), **self.metrics_head_1, **self.lr})
+            self.save_metrics(metrics={**self.label_loss_items(self.tloss), **self.metrics_head_2, **self.lr})
+            self.save_metrics(metrics={**self.label_loss_items(self.tloss), **self.metrics_both, **self.lr})
             self.save_model()
 
             #self.save_model()
             torch.cuda.empty_cache()  # clears GPU vRAM at end of epoch, can help with out of memory errors
 
 
-            if self.epoch % 20 == 0:
-                self.save_model()
-
 
         torch.cuda.empty_cache()
-        self.save_model()
+        #self.save_model()
 
 
     def optimizer_step(self):
@@ -309,38 +316,57 @@ class MyDetectionTrainer(BaseTrainer):
 
     def validate(self):
 
-        metrics =  self.validator(trainer=self)
+        metrics_head_1,metrics_head_2,metrics_both =  self.validator(trainer=self)
         #fitness = metrics.pop('fitness', -((self.loss_head_1.detach().cpu().numpy() + self.loss_head_2.detach().cpu().numpy()) / 2 ))  # use loss as fitness measure if not found
-        fitness_head_1 = metrics.pop('fitness', -self.loss_head_1.detach().cpu().numpy())
-        fitness_head_2 = metrics.pop('fitness', -self.loss_head_2.detach().cpu().numpy())
-        fitness = (fitness_head_1 + fitness_head_2) / 2
-        if not self.best_fitness or self.best_fitness < fitness:
-            self.best_fitness = fitness
-        return metrics, fitness
+        fitness_head_1 = metrics_head_1.pop('fitness')
+        fitness_head_2 = metrics_head_2.pop('fitness')
+        fitness_both = metrics_both.pop('fitness')
+
+        #fitness = (fitness_head_1 + fitness_head_2) / 2
+
+        print("FITNESS 1",fitness_head_1)
+        print("FITNESS 2",fitness_head_2)
+        print("FITNESS BOTH ",fitness_both)
+        print("BEST FITNESS 1 ",self.best_fitness_head1)
+        print("BEST FITNESS 2 ",self.best_fitness_head2)
+        print("BEST FITNESS BOTH",self.best_fitness_both)
+
+        if self.best_fitness_head1 == None:
+            self.best_fitness_head1 = fitness_head_1
+            self.best_fitness_head2 = fitness_head_2
+            self.best_fitness_both  = fitness_both
+        else:
+            if fitness_head_1 > self.best_fitness_head1 and  fitness_head_2 > self.best_fitness_head2 and fitness_both > self.best_fitness_both:
+                self.best_fitness_head1 = fitness_head_1
+                self.best_fitness_head2 = fitness_head_2
+                self.best_fitness_both  = fitness_both
+
+        return metrics_head_1,metrics_head_2, metrics_both
 
 
 
     def save_model(self):
         """Save model training checkpoints with additional metadata."""
         import pandas as pd  # scope for faster startup
-        metrics = {**self.metrics, **{'fitness': self.fitness}}
-        results = {k.strip(): v for k, v in pd.read_csv(self.csv).to_dict(orient='list').items()}
+        #metrics = {**self.metrics, **{'fitness': self.fitness}}
+        #results = {k.strip(): v for k, v in pd.read_csv(self.csv).to_dict(orient='list').items()}
         ckpt = {
             'epoch': self.epoch,
-            'best_fitness': self.best_fitness,
+            #'best_fitness': self.best_fitness,
             'model': deepcopy(de_parallel(self.model)).half(),
             #'ema': deepcopy(self.ema.ema).half(),
             #'updates': self.ema.updates,
             'optimizer': self.optimizer.state_dict(),
             'train_args': vars(self.args),  # save as dict
-            'train_metrics': metrics,
-            'train_results': results,
+            #'train_metrics': metrics,
+            #'train_results': results,
             'date': datetime.now().isoformat()
             }
 
         # Save last and best
         #torch.save(ckpt, self.last)
-        if self.best_fitness == self.fitness:
+        if self.best_fitness_head1  == self.fitness_head1 or self.best_fitness_head2  == self.fitness_head2 or self.best_fitness_both == self.fitness_both :
+            print("GIRDI")
             torch.save(ckpt, self.best)
 
 
