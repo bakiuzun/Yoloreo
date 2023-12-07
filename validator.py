@@ -72,13 +72,13 @@ class MyDetectionValidator(DetectionValidator):
             self.batch_i = batch_i
 
             patch_1_annotation,patch_2_annotation = self.dataset.retrieve_annotation(batch,self.device)
-
-            batch,mono_anot,stereo_anot_1,stereo_anot_2 = self.preprocess(batch,patch_1_annotation,patch_2_annotation)
+            batch['img'] = batch['img'].to(self.device, non_blocking=True).float() / 255
+            #batch,mono_anot,stereo_anot_1,stereo_anot_2 = self.preprocess(batch,patch_1_annotation,patch_2_annotation)
             # Preprocess
 
 
             # Inference
-            features = model(batch)
+            features = model(batch["img"])
             preds_head_1 = features["x_1"]
             preds_head_2 = features["x_2"]
             preds_both = features["mono_res"]
@@ -89,30 +89,33 @@ class MyDetectionValidator(DetectionValidator):
 
             preds_head_1 = self.postprocess(preds_head_1)
             preds_head_2 = self.postprocess(preds_head_2)
-            preds_both = self.postprocess(preds_both)
+            #preds_both = self.postprocess(preds_both)
 
 
 
-            self.update_metrics(preds_head_1, stereo_anot_1,head_name="head1")
-            self.update_metrics(preds_head_2, stereo_anot_2,head_name="head2")
-            self.update_metrics(preds_both, mono_anot,head_name="both")
+            patch_1_annotation["img"] = batch["img"][:,0]
+            patch_2_annotation["img"] = batch["img"][:,1]
+            self.update_metrics(preds_head_1, patch_1_annotation,head_name="head1")
+            self.update_metrics(preds_head_2, patch_2_annotation,head_name="head2")
+            #self.update_metrics(preds_both, mono_anot,head_name="both")
 
 
         stats_head_1 = self.get_stats(head_name="head1")
         stats_head_2 = self.get_stats(head_name="head2")
-        stats_both = self.get_stats(head_name="both")
+        #stats_both = self.get_stats(head_name="both")
 
         self.print_results(head="head1")
         self.print_results(head="head2")
-        self.print_results(head="both")
+        #self.print_results(head="both")
 
         model.float()
         #results = {**stats, **trainer.label_loss_items( ( (self.loss_head_1.cpu() + self.loss_head_2.cpu()) / 2) / len(self.dataloader), prefix='val')}
         results_head_1 = {**stats_head_1, **trainer.label_loss_items(self.loss_head_1.cpu() / len(self.dataloader), prefix='val')}
         results_head_2 = {**stats_head_2, **trainer.label_loss_items(self.loss_head_2.cpu() / len(self.dataloader), prefix='val')}
-        results_both = {**stats_both, **trainer.label_loss_items(self.loss_both.cpu() / len(self.dataloader), prefix='val')}
+        #results_both = {**stats_both, **trainer.label_loss_items(self.loss_both.cpu() / len(self.dataloader), prefix='val')}
 
-        return [{k: round(float(v), 5) for k, v in results_head_1.items()},{k: round(float(v), 5) for k, v in results_head_2.items()},{k: round(float(v), 5) for k, v in results_both.items()} ]  # return results as 5 decimal place floats
+        return [{k: round(float(v), 5) for k, v in results_head_1.items()},{k: round(float(v), 5) for k, v in results_head_2.items()} ]
+        #return [{k: round(float(v), 5) for k, v in results_head_1.items()},{k: round(float(v), 5) for k, v in results_head_2.items()},{k: round(float(v), 5) for k, v in results_both.items()} ]  # return results as 5 decimal place floats
 
 
     def init_metrics(self, model):
@@ -170,8 +173,6 @@ class MyDetectionValidator(DetectionValidator):
     def update_metrics(self, preds, batch,head_name="head1"):
         """Metrics."""
 
-        print("HEAD = ",head_name)
-        print("LEN PREDS ",len(preds))
         for si, pred in enumerate(preds):
             idx = batch['batch_idx'] == si
             cls = batch['cls'][idx]
@@ -323,7 +324,15 @@ class MyDetectionValidator(DetectionValidator):
         """Prints training/validation set metrics per class."""
         LOGGER.info(f"HEAD {head}")
 
-        pf = '%22s' + '%11i' * 2 + '%11.3g' * len(self.metrics_head_1.keys)  # print format
+        if head == "head1":
+            pf = '%22s' + '%11i' * 2 + '%11.3g' * len(self.metrics_head_1.keys)  # print format
+        elif head == "head2":
+            pf = '%22s' + '%11i' * 2 + '%11.3g' * len(self.metrics_head_2.keys)  # print format
+
+        elif head == "both":
+            pf = '%22s' + '%11i' * 2 + '%11.3g' * len(self.metrics_both.keys)  # print format
+
+
 
         if head == "head1":
             LOGGER.info(pf % ('all', self.seen, self.nt_per_class.sum(), *self.metrics_head_1.mean_results()))
