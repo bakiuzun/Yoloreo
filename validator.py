@@ -265,10 +265,6 @@ class MyDetectionValidator(DetectionValidator):
         return batch,mono_anot,stereo_anot_1,stereo_anot_2
 
 
-
-
-
-
     def evaluate(self,model,device):
 
         self.device = device
@@ -331,8 +327,6 @@ class MyDetectionValidator(DetectionValidator):
 
         elif head == "both":
             pf = '%22s' + '%11i' * 2 + '%11.3g' * len(self.metrics_both.keys)  # print format
-
-
 
         if head == "head1":
             LOGGER.info(pf % ('all', self.seen, self.nt_per_class.sum(), *self.metrics_head_1.mean_results()))
