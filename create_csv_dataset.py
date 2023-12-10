@@ -54,11 +54,6 @@ def write_to_csv(mode,dir_name,ratio_without_label=0.0):
                         autorized_nb_images_without_label -= 1
                         csv_writer.writerow([patch_1_file])
 
-
-
-
-
-
 def label_contain_object(label_file):
     with open(label_file, 'r') as file:
             # Read lines from the file
@@ -81,10 +76,8 @@ def get_second_patch_file_path(dir_name,file,patch_dir):
 
 
 mono_images_train = {'201401131052058': 78, '201701261109474': 11, '202304241128373': 57,
-                      '201906221113226': 37, '201905141113275': 88, '201707071112468': 72,
-                      '202208271125349': 21, '202110141114204': 67}
-mono_images_val = {'202106131109358': 54}
-mono_images_test  = {'202208271125349': 74}
+                      '201906221113226': 37, '201905141113275': 88, '201707071112468': 72, '202110141114204': 67}
+mono_images_val = {'202106131109358': 54,'202208271125349': 74}
 
 
 stereo_images_train =  {'202107221109551_202107221110373': 173, '202109031128506_202109051114435': 171,
@@ -95,20 +88,18 @@ stereo_images_train =  {'202107221109551_202107221110373': 173, '202109031128506
                         '201610051127479_201610051129175': 133, '202207191124466_202207191125099': 96}
 
 stereo_images_val= {'202106051121186_202106051121491': 144,'201706101120101_201706101121254': 118,
-                    '202206041120355_202206041121318': 118,'202105301116513_202105301117321': 155}
-
-stereo_images_test = {'201802171130571_201802171132051': 113,'201510041102114_201510041102549': 98}
+                    '202206041120355_202206041121318': 118,'202105301116513_202105301117321': 155,
+                    '201802171130571_201802171132051': 113,'201510041102114_201510041102549': 98}
 
 #write_to_csv("image_train",'202107221109551_202107221110373')
 
-for i in stereo_images_train:write_to_csv("image_train",i)
-for i in stereo_images_val:write_to_csv("image_valid",i)
-for i in stereo_images_test:write_to_csv("image_test",i)
+#for i in stereo_images_train:write_to_csv("image_train",i)
+#for i in stereo_images_val:write_to_csv("image_valid",i)
 
 
-for i in mono_images_train:write_to_csv("image_train",i)
-for i in mono_images_val:write_to_csv("image_valid",i)
-for i in mono_images_test:write_to_csv("image_test",i)
+#for i in mono_images_train:write_to_csv("image_train",i)
+#for i in mono_images_val:write_to_csv("image_valid",i)
+
 
 
 
@@ -147,42 +138,97 @@ def augment_and_save(csv_path):
 
     # THE AUGS
     transform = A.Compose([
-        A.ShiftScaleRotate(p=0.5),
+        A.RandomRotate90(p=0.5),
         A.HorizontalFlip(p=0.5),
-        A.VerticalFlip(p=0.5),
     ], bbox_params=A.BboxParams(format='yolo'))
 
 
     for i in range(len(df)):
         row = df.iloc[i]
+
         image_path = row["patch1"]
 
-        image = np.array(cv2.imread(image_path,cv2.IMREAD_UNCHANGED))
-        image = image[:,:,:3]
-        label = image_to_label_path(image_path,True)
+        stereo = pd.isna(row["patch2"]) == False
+        if stereo:
+            image = np.array(cv2.imread(image_path,cv2.IMREAD_UNCHANGED))
+            ori_img = image
+            image = image[:,:,:3]
+            label = image_to_label_path(image_path,True)
 
-        bboxes = ret_box(label)
-
-        for i in range(10):
-            new_image_path =  create_new_image_path(image_path,i)
+            bboxes = ret_box(label)
 
 
-            label = image_to_label_path(new_image_path,True)
+            stereo_path = row["patch2"]
+            image_2 = np.array(cv2.imread(stereo_path,cv2.IMREAD_UNCHANGED))
+            image_2 = image_2[:,:,:3]
+            label_2 = image_to_label_path(stereo_path,False)
 
-            transformed = transform(image=image,bboxes=bboxes)
-            transformed_bboxes = transformed['bboxes']
-            transformed_image = transformed["image"]
+            bboxes_2 = ret_box(label_2)
 
-            with open(label,'w') as new_annot:
-                for boxe in transformed_bboxes:
+            alpha = 0.5
+            lam =  np.random.beta(alpha,alpha)
+            mixed_image1 = lam * image + (1 - lam) * image_2
+            mixed_image2 = lam * image_2 + (1 - lam) * image
+            transformed_image = (mixed_image1 + mixed_image2) / 2.0
+
+            minn = np.min(transformed_image)
+            maxx = np.max(transformed_image)
+
+            new_img_1_path = create_new_image_path(image_path,i)
+            new_img_2_path = create_new_image_path(stereo_path,i)
+
+
+            #transformed_image = ((transformed_image - minn) / (maxx - minn)) * 255
+
+            label1 = image_to_label_path(new_img_1_path,True)
+            label2 = image_to_label_path(new_img_2_path,False)
+
+
+            with open(label1,'w') as new_annot:
+                for boxe in bboxes:
                     thing_to_save = f"0,{boxe[0]},{boxe[1]},{boxe[2]},{boxe[3]}\n"
                     new_annot.write(thing_to_save)
 
                 new_annot.close()
 
-            cv2.imwrite(new_image_path,transformed_image)
+            cv2.imwrite(label1,ori_img)
 
-#augment_and_save('dataset_for_aug_split.csv')
+
+            with open(label2,'w') as new_annot:
+                for boxe in bboxes:
+                    thing_to_save = f"0,{boxe[0]},{boxe[1]},{boxe[2]},{boxe[3]}\n"
+                    new_annot.write(thing_to_save)
+
+                for boxe in bboxes_2:
+                    thing_to_save = f"0,{boxe[0]},{boxe[1]},{boxe[2]},{boxe[3]}\n"
+                    new_annot.write(thing_to_save)
+
+                new_annot.close()
+
+            cv2.imwrite(label2,transformed_image)
+
+            """
+            for i in range(10):
+                new_image_path =  create_new_image_path(image_path,i)
+
+
+                label = image_to_label_path(new_image_path,True)
+
+                transformed = transform(image=image,bboxes=bboxes)
+                transformed_bboxes = transformed['bboxes']
+                transformed_image = transformed["image"]
+
+                with open(label,'w') as new_annot:
+                    for boxe in transformed_bboxes:
+                        thing_to_save = f"0,{boxe[0]},{boxe[1]},{boxe[2]},{boxe[3]}\n"
+                        new_annot.write(thing_to_save)
+
+                    new_annot.close()
+
+                cv2.imwrite(new_image_path,transformed_image)
+            """
+        break
+augment_and_save('dataset_for_augs.csv')
 
 
 """
