@@ -4,6 +4,7 @@ from utils import image_to_label_path
 import pandas as pd
 import cv2
 import numpy as np
+import random
 
 BASE_IMAGE_FILE_PATH = '/share/projects/cicero/objdet/dataset/CICERO_stereo/images/1_Varengeville_sur_Mer'
 BASE_LABEL_FILE_PATH = "/share/projects/cicero/objdet/dataset/CICERO_stereo/train_label/1_Varengeville_sur_Mer/"
@@ -131,9 +132,21 @@ def create_new_image_path(base_image_path,index):
 
     return "/".join(splitted)
 
+
+
+def get_random_patch_2_index(df):
+
+    random_index = random.randint(0, len(df) - 1)
+    while (pd.isna(df.iloc[random_index]["patch2"]) == True):
+        random_index = random.randint(0, len(df) - 1)
+
+    return random_index
+
+
+
 def augment_and_save(csv_path):
     import albumentations as A
-    from utils import (get_label_info,image_to_label_path,save_image_using_label)
+    from utils import (image_to_label_path)
     df = pd.read_csv(csv_path)
 
     # THE AUGS
@@ -147,42 +160,42 @@ def augment_and_save(csv_path):
         row = df.iloc[i]
 
         image_path = row["patch1"]
+        label = image_to_label_path(image_path,True)
+        bboxes = ret_box(label)
 
         stereo = pd.isna(row["patch2"]) == False
         if stereo:
             image = np.array(cv2.imread(image_path,cv2.IMREAD_UNCHANGED))
             ori_img = image
             image = image[:,:,:3]
-            label = image_to_label_path(image_path,True)
-
-            bboxes = ret_box(label)
 
 
             stereo_path = row["patch2"]
             image_2 = np.array(cv2.imread(stereo_path,cv2.IMREAD_UNCHANGED))
             image_2 = image_2[:,:,:3]
             label_2 = image_to_label_path(stereo_path,False)
-
             bboxes_2 = ret_box(label_2)
+
+
+            random_patch2_to_be_mixed_path = df.iloc[get_random_patch_2_index(df)]["patch2"]
+            random_patch2_to_be_mixed_image =   np.array(cv2.imread(random_patch2_to_be_mixed_path,cv2.IMREAD_UNCHANGED))
+            random_patch2_to_be_mixed_image = random_patch2_to_be_mixed_image[:,:,:3]
+            label_random_patch2 = image_to_label_path(random_patch2_to_be_mixed_path,False)
+            bboxes_random = ret_box(label_random_patch2)
+
 
             alpha = 0.5
             lam =  np.random.beta(alpha,alpha)
-            mixed_image1 = lam * image + (1 - lam) * image_2
-            mixed_image2 = lam * image_2 + (1 - lam) * image
+            mixed_image1 = lam * image_2 + (1 - lam) * random_patch2_to_be_mixed_image
+            mixed_image2 = lam * random_patch2_to_be_mixed_image + (1 - lam) * image_2
             transformed_image = (mixed_image1 + mixed_image2) / 2.0
-
-            minn = np.min(transformed_image)
-            maxx = np.max(transformed_image)
 
             new_img_1_path = create_new_image_path(image_path,i)
             new_img_2_path = create_new_image_path(stereo_path,i)
 
 
-            #transformed_image = ((transformed_image - minn) / (maxx - minn)) * 255
-
             label1 = image_to_label_path(new_img_1_path,True)
             label2 = image_to_label_path(new_img_2_path,False)
-
 
             with open(label1,'w') as new_annot:
                 for boxe in bboxes:
@@ -191,11 +204,10 @@ def augment_and_save(csv_path):
 
                 new_annot.close()
 
-            cv2.imwrite(label1,ori_img)
-
+            cv2.imwrite(new_img_1_path,image)
 
             with open(label2,'w') as new_annot:
-                for boxe in bboxes:
+                for boxe in bboxes_random:
                     thing_to_save = f"0,{boxe[0]},{boxe[1]},{boxe[2]},{boxe[3]}\n"
                     new_annot.write(thing_to_save)
 
@@ -205,7 +217,7 @@ def augment_and_save(csv_path):
 
                 new_annot.close()
 
-            cv2.imwrite(label2,transformed_image)
+            cv2.imwrite(new_img_2_path,transformed_image)
 
             """
             for i in range(10):
@@ -227,41 +239,7 @@ def augment_and_save(csv_path):
 
                 cv2.imwrite(new_image_path,transformed_image)
             """
-        break
-augment_and_save('dataset_for_augs.csv')
-
-
-"""
-df = pd.read_csv("dataset_complet.csv")
-
-means = []
-for i in range(len(df)):
-    image = df.iloc[i]["patch1"]
-    image = np.array(cv2.imread(image,cv2.IMREAD_UNCHANGED))
-    image = image[:,:,:3]
-    mean = np.mean(image,axis=(0,1))
-    means.append(mean)
-
-
-means = np.mean(means,axis=0)
-variances = []
-
-
-for i in range(len(df)):
-    image = df.iloc[i]["patch1"]
-    image = np.array(cv2.imread(image,cv2.IMREAD_UNCHANGED))
-    image = image[:,:,:3]
-    variance = np.mean((image - means) ** 2, axis=(0, 1))
-    variances.append(variance)
 
 
 
-
-overall_variance = np.mean(variances, axis=0)
-overall_std_deviation = np.sqrt(overall_variance)
-
-
-print("MEAN ",means)
-print("STD ",overall_std_deviation)
-
-"""
+#augment_and_save('dataset_for_augs.csv')
