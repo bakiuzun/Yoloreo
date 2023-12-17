@@ -5,6 +5,7 @@ import pandas as pd
 import cv2
 import numpy as np
 import random
+import matplotlib.pyplot as plt
 
 BASE_IMAGE_FILE_PATH = '/share/projects/cicero/objdet/dataset/CICERO_stereo/images/1_Varengeville_sur_Mer'
 BASE_LABEL_FILE_PATH = "/share/projects/cicero/objdet/dataset/CICERO_stereo/train_label/1_Varengeville_sur_Mer/"
@@ -92,13 +93,12 @@ stereo_images_val= {'202106051121186_202106051121491': 144,'201706101120101_2017
                     '202206041120355_202206041121318': 118,'202105301116513_202105301117321': 155,
                     '201802171130571_201802171132051': 113,'201510041102114_201510041102549': 98}
 
-#write_to_csv("image_train",'202107221109551_202107221110373')
 
-#for i in stereo_images_train:write_to_csv("image_train",i)
+for i in stereo_images_train:write_to_csv("image_train",i)
 #for i in stereo_images_val:write_to_csv("image_valid",i)
 
 
-#for i in mono_images_train:write_to_csv("image_train",i)
+for i in mono_images_train:write_to_csv("image_train",i)
 #for i in mono_images_val:write_to_csv("image_valid",i)
 
 
@@ -144,6 +144,66 @@ def get_random_patch_2_index(df):
 
 
 
+def save_img(path,img):
+
+    minn = np.min(img)
+    maxx = np.max(img)
+
+    img = ((img - minn) / (maxx - minn)) * 255
+
+    cv2.imwrite(path,img)
+
+
+
+def delete_augmented(file,only_stereo=True):
+    ## only stereo not used right now
+    from utils import (image_to_label_path)
+
+    df = pd.read_csv(file)
+
+    for i in range(len(df)):
+        row = df.iloc[i]
+
+        image_path = row["patch1"]
+
+        stereo = pd.isna(row["patch2"]) == False
+        if stereo:
+            if "aug" in image_path:
+                os.remove(image_path)
+                os.remove(image_to_label_path(image_path))
+
+                path_2 = row["patch2"]
+                os.remove(path_2)
+                os.remove(image_to_label_path(path_2,False))
+
+
+
+#delete_augmented("csv/image_train_split.csv")
+
+#delete_augmented("csv/image_train_split.csv")
+
+
+def mixup_image(img1,img2):
+
+    alpha = 0.5
+    lam =  np.random.beta(alpha,alpha)
+    mixed_image1 = lam * img1 + (1 - lam) * img2
+    mixed_image2 = lam * img2 + (1 - lam) * img1
+    transformed_image = (mixed_image1 + mixed_image2) / 2
+
+    return transformed_image
+
+def write_annot(file,bboxes,option="w"):
+
+    with open(file,option) as new_annot:
+        for boxe in bboxes:
+            thing_to_save = f"0,{boxe[0]},{boxe[1]},{boxe[2]},{boxe[3]}\n"
+            new_annot.write(thing_to_save)
+
+        new_annot.close()
+
+
+
 def augment_and_save(csv_path):
     import albumentations as A
     from utils import (image_to_label_path)
@@ -166,7 +226,6 @@ def augment_and_save(csv_path):
         stereo = pd.isna(row["patch2"]) == False
         if stereo:
             image = np.array(cv2.imread(image_path,cv2.IMREAD_UNCHANGED))
-            ori_img = image
             image = image[:,:,:3]
 
 
@@ -175,49 +234,40 @@ def augment_and_save(csv_path):
             image_2 = image_2[:,:,:3]
             label_2 = image_to_label_path(stereo_path,False)
             bboxes_2 = ret_box(label_2)
+            for i in range(5):
+                random_second_img_path = df.iloc[get_random_patch_2_index(df)]["patch2"]
+                random_second_img =   np.array(cv2.imread(random_second_img_path,cv2.IMREAD_UNCHANGED))
+                random_second_img = random_second_img[:,:,:3]
+                label_random_patch = image_to_label_path(random_second_img_path,False)
+                bboxes_random = ret_box(label_random_patch)
+
+                mixup_img  =  mixup_image(image_2,random_second_img)
+
+                """
+                random_second_img_path_2 = df.iloc[get_random_patch_2_index(df)]["patch2"]
+                random_second_img_2 =   np.array(cv2.imread(random_second_img_path_2,cv2.IMREAD_UNCHANGED))
+                random_second_img_2 = random_second_img_2[:,:,:3]
+                label_random_patch2 = image_to_label_path(random_second_img_path_2,False)
+                bboxes_random_2 = ret_box(label_random_patch2)
+
+                mixup_img_2  =  mixup_image(image,random_second_img_2)
+                """
+
+                new_img_1_path = create_new_image_path(image_path,i)
+                new_img_2_path = create_new_image_path(stereo_path,i)
 
 
-            random_patch2_to_be_mixed_path = df.iloc[get_random_patch_2_index(df)]["patch2"]
-            random_patch2_to_be_mixed_image =   np.array(cv2.imread(random_patch2_to_be_mixed_path,cv2.IMREAD_UNCHANGED))
-            random_patch2_to_be_mixed_image = random_patch2_to_be_mixed_image[:,:,:3]
-            label_random_patch2 = image_to_label_path(random_patch2_to_be_mixed_path,False)
-            bboxes_random = ret_box(label_random_patch2)
+                label1 = image_to_label_path(new_img_1_path,True)
+                label2 = image_to_label_path(new_img_2_path,False)
+
+                #write_annot(label1,bboxes_random_2,option="a")
+                write_annot(label1,bboxes,option="a")
+                cv2.imwrite(new_img_1_path,image.astype(np.uint16))
 
 
-            alpha = 0.5
-            lam =  np.random.beta(alpha,alpha)
-            mixed_image1 = lam * image_2 + (1 - lam) * random_patch2_to_be_mixed_image
-            mixed_image2 = lam * random_patch2_to_be_mixed_image + (1 - lam) * image_2
-            transformed_image = (mixed_image1 + mixed_image2) / 2.0
-
-            new_img_1_path = create_new_image_path(image_path,i)
-            new_img_2_path = create_new_image_path(stereo_path,i)
-
-
-            label1 = image_to_label_path(new_img_1_path,True)
-            label2 = image_to_label_path(new_img_2_path,False)
-
-            with open(label1,'w') as new_annot:
-                for boxe in bboxes:
-                    thing_to_save = f"0,{boxe[0]},{boxe[1]},{boxe[2]},{boxe[3]}\n"
-                    new_annot.write(thing_to_save)
-
-                new_annot.close()
-
-            cv2.imwrite(new_img_1_path,image)
-
-            with open(label2,'w') as new_annot:
-                for boxe in bboxes_random:
-                    thing_to_save = f"0,{boxe[0]},{boxe[1]},{boxe[2]},{boxe[3]}\n"
-                    new_annot.write(thing_to_save)
-
-                for boxe in bboxes_2:
-                    thing_to_save = f"0,{boxe[0]},{boxe[1]},{boxe[2]},{boxe[3]}\n"
-                    new_annot.write(thing_to_save)
-
-                new_annot.close()
-
-            cv2.imwrite(new_img_2_path,transformed_image)
+                write_annot(label2,bboxes_random,option="a")
+                write_annot(label2,bboxes_2,option="a")
+                cv2.imwrite(new_img_2_path,mixup_img.astype(np.uint16))
 
             """
             for i in range(10):
