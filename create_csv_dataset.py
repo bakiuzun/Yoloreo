@@ -77,34 +77,6 @@ def get_second_patch_file_path(dir_name,file,patch_dir):
     return second_file_path
 
 
-mono_images_train = {'201401131052058': 78, '201701261109474': 11, '202304241128373': 57,
-                      '201906221113226': 37, '201905141113275': 88, '201707071112468': 72, '202110141114204': 67}
-mono_images_val = {'202106131109358': 54,'202208271125349': 74}
-
-
-stereo_images_train =  {'202107221109551_202107221110373': 173, '202109031128506_202109051114435': 171,
-                        '202107201124530_202107201125485': 127, '202207081109428_202207081110256': 143,
-                        '201809031109535_201809031110026': 31, '201706181108449_201706181110005': 145,
-                        '201510041102206_201510041102459': 147, '201802181125339_201802271106473': 205,
-                        '202208071128165_202208081121324': 141, '202304181125325_202304181124338': 118,
-                        '201610051127479_201610051129175': 133, '202207191124466_202207191125099': 96}
-
-stereo_images_val= {'202106051121186_202106051121491': 144,'201706101120101_201706101121254': 118,
-                    '202206041120355_202206041121318': 118,'202105301116513_202105301117321': 155,
-                    '201802171130571_201802171132051': 113,'201510041102114_201510041102549': 98}
-
-
-for i in stereo_images_train:write_to_csv("image_train",i)
-#for i in stereo_images_val:write_to_csv("image_valid",i)
-
-
-for i in mono_images_train:write_to_csv("image_train",i)
-#for i in mono_images_val:write_to_csv("image_valid",i)
-
-
-
-
-
 def ret_box(path):
     """
     tiny change compared to the method in the utils file
@@ -134,9 +106,10 @@ def create_new_image_path(base_image_path,index):
 
 
 
-def get_random_patch_2_index(df):
+def get_random_patch_index(df):
 
     random_index = random.randint(0, len(df) - 1)
+
     while (pd.isna(df.iloc[random_index]["patch2"]) == True):
         random_index = random.randint(0, len(df) - 1)
 
@@ -175,12 +148,6 @@ def delete_augmented(file,only_stereo=True):
                 path_2 = row["patch2"]
                 os.remove(path_2)
                 os.remove(image_to_label_path(path_2,False))
-
-
-
-#delete_augmented("csv/image_train_split.csv")
-
-#delete_augmented("csv/image_train_split.csv")
 
 
 def mixup_image(img1,img2):
@@ -235,7 +202,8 @@ def augment_and_save(csv_path):
             label_2 = image_to_label_path(stereo_path,False)
             bboxes_2 = ret_box(label_2)
             for i in range(5):
-                random_second_img_path = df.iloc[get_random_patch_2_index(df)]["patch2"]
+                random_index = get_random_patch_index(df)
+                random_second_img_path = df.iloc[random_index]["patch2"]
                 random_second_img =   np.array(cv2.imread(random_second_img_path,cv2.IMREAD_UNCHANGED))
                 random_second_img = random_second_img[:,:,:3]
                 label_random_patch = image_to_label_path(random_second_img_path,False)
@@ -243,15 +211,15 @@ def augment_and_save(csv_path):
 
                 mixup_img  =  mixup_image(image_2,random_second_img)
 
-                """
-                random_second_img_path_2 = df.iloc[get_random_patch_2_index(df)]["patch2"]
+
+                random_second_img_path_2 = df.iloc[random_index]["patch1"]
                 random_second_img_2 =   np.array(cv2.imread(random_second_img_path_2,cv2.IMREAD_UNCHANGED))
                 random_second_img_2 = random_second_img_2[:,:,:3]
-                label_random_patch2 = image_to_label_path(random_second_img_path_2,False)
+                label_random_patch2 = image_to_label_path(random_second_img_path_2,True)
                 bboxes_random_2 = ret_box(label_random_patch2)
 
                 mixup_img_2  =  mixup_image(image,random_second_img_2)
-                """
+
 
                 new_img_1_path = create_new_image_path(image_path,i)
                 new_img_2_path = create_new_image_path(stereo_path,i)
@@ -260,9 +228,10 @@ def augment_and_save(csv_path):
                 label1 = image_to_label_path(new_img_1_path,True)
                 label2 = image_to_label_path(new_img_2_path,False)
 
-                #write_annot(label1,bboxes_random_2,option="a")
+                write_annot(label1,bboxes_random_2,option="a")
                 write_annot(label1,bboxes,option="a")
-                cv2.imwrite(new_img_1_path,image.astype(np.uint16))
+                cv2.imwrite(new_img_1_path,mixup_img_2.astype(np.uint16))
+                #cv2.imwrite(new_img_1_path,image.astype(np.uint16))
 
 
                 write_annot(label2,bboxes_random,option="a")
@@ -291,5 +260,30 @@ def augment_and_save(csv_path):
             """
 
 
+mono_images_train = {'201401131052058': 78, '201701261109474': 11, '202304241128373': 57,
+                      '201906221113226': 37, '201905141113275': 88, '201707071112468': 72, '202110141114204': 67}
+mono_images_val = {'202106131109358': 54,'202208271125349': 74}
+
+
+stereo_images_train =  {'202107221109551_202107221110373': 173, '202109031128506_202109051114435': 171,
+                        '202107201124530_202107201125485': 127, '202207081109428_202207081110256': 143,
+                        '201809031109535_201809031110026': 31, '201706181108449_201706181110005': 145,
+                        '201510041102206_201510041102459': 147, '201802181125339_201802271106473': 205,
+                        '202208071128165_202208081121324': 141, '202304181125325_202304181124338': 118,
+                        '201610051127479_201610051129175': 133, '202207191124466_202207191125099': 96}
+
+stereo_images_val= {'202106051121186_202106051121491': 144,'201706101120101_201706101121254': 118,
+                    '202206041120355_202206041121318': 118,'202105301116513_202105301117321': 155,
+                    '201802171130571_201802171132051': 113,'201510041102114_201510041102549': 98}
+
 
 #augment_and_save('dataset_for_augs.csv')
+
+
+
+for i in stereo_images_train:write_to_csv("image_train",i)
+#for i in stereo_images_val:write_to_csv("image_valid",i)
+
+
+for i in mono_images_train:write_to_csv("image_train",i)
+#for i in mono_images_val:write_to_csv("image_valid",i)
