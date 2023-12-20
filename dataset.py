@@ -6,25 +6,6 @@ import pandas as pd
 from utils import (load_image,image_to_label_path,get_label_info)
 import copy
 
-MAX_MIN = {
-    "min":0,
-    "max":24377
-}
-
-
-std =  [418.56,553.68,517.83]
-mean =  [817.62,901.2,764.64]
-
-class RandomPerspec:
-    ## augs for the METER ML dataset
-    def __init__(self) -> None:
-
-
-        # TODO random perspective
-        #self.transform = ## Compose ..... [...]
-        self.transform = None
-    def __call__(self, x):
-        return self.transform(x)
 
 class CliffDataset(Dataset):
     def __init__(self,mode="train"):
