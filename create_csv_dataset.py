@@ -41,12 +41,16 @@ def write_to_csv(mode,dir_name,ratio_without_label=0.0):
 
                 # if one of the patch contain an object we save it
                 if this_file_contain_object or this_second_file_contain_object:
-                    csv_writer.writerow([patch_1_file,second_file_path])
+                    #csv_writer.writerow([patch_1_file,second_file_path])
+                    csv_writer.writerow([patch_1_file])
+                    csv_writer.writerow([second_file_path])
                 else:
                     # if no object in 2 patches we check if we can save it
                     if autorized_nb_images_without_label > 0:
                         autorized_nb_images_without_label -= 1
-                        csv_writer.writerow([patch_1_file,second_file_path])
+                        #csv_writer.writerow([patch_1_file,second_file_path])
+                        csv_writer.writerow([patch_1_file])
+                        csv_writer.writerow([second_file_path])
 
             else:
                 if this_file_contain_object:
@@ -148,6 +152,9 @@ def delete_augmented(file,only_stereo=True):
                 path_2 = row["patch2"]
                 os.remove(path_2)
                 os.remove(image_to_label_path(path_2,False))
+
+
+#delete_augmented("csv/image_train_split.csv")
 
 
 def mixup_image(img1,img2):
@@ -280,10 +287,7 @@ stereo_images_val= {'202106051121186_202106051121491': 144,'201706101120101_2017
 #augment_and_save('dataset_for_augs.csv')
 
 
-
 for i in stereo_images_train:write_to_csv("image_train",i)
 #for i in stereo_images_val:write_to_csv("image_valid",i)
-
-
 for i in mono_images_train:write_to_csv("image_train",i)
 #for i in mono_images_val:write_to_csv("image_valid",i)
