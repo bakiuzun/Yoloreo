@@ -53,11 +53,10 @@ class MyYolo(BaseModel):
             self.load_pretrained_weights(weights)
             self.enable_all_gradients()
 
-        input_size = 20
 
-        self.linear_query = torch.nn.Linear(input_size, input_size)
-        self.linear_key = torch.nn.Linear(input_size, input_size)
-        self.linear_value = torch.nn.Linear(input_size, input_size)
+        self.linear_query = torch.nn.Conv1d(576, 576, 1)
+        self.linear_key = torch.nn.Conv1d(576, 576, 1)
+        self.linear_value = torch.nn.Conv1d(576, 576, 1)
 
         self.head_1 = self.model[10:23]
         self.backbone = self.model[:10]
@@ -88,42 +87,14 @@ class MyYolo(BaseModel):
 
         mono_res = None
 
-
-        if  isinstance(x,dict):
-            ## prediction
-            mono_y  = []
-            mono = x["mono_images"]
-
-
-            mono,mono_y = self._forward_backbone(mono,mono_y)
-
-            #attended_feature = self._cross_attention(mono,mono)
-
-            mono_1,_ = self._forward_head(mono,mono_y,head1=True)
-            mono_2,_ = self._forward_head(mono,mono_y,head1=False)
-
-            concatenated_tensors = []
-
-            # Concatenate x_2[i][j] with x_1[i][j] for i=1 and j=0 to j=2 along the batch axis
-            for j in range(3):  # j=0, 1, 2
-                concatenated_tensor = torch.cat((mono_1[1][j], mono_2[1][j]), dim=0)
-                concatenated_tensors.append(concatenated_tensor)
-
-            # Concatenate the list of tensors along the batch axis (dim=0)
-            first_dim = torch.cat((mono_1[0], mono_2[0]), dim=1)
-            mono_res = [first_dim,[concatenated_tensors]]
-
-
-            x = x["stereo_images"]
-
         y_1 = []
         y_2 = []
         x_1 = x[:,0]
         x_2 = x[:,1]
 
-
         x_1,y_1 = self._forward_backbone(x_1,y_1)
         x_2,y_2 = self._forward_backbone(x_2,y_2)
+
 
         attended_feature_2 = self._cross_attention(x_1,x_2)
         attended_feature_1 = self._cross_attention(x_2,x_1)
@@ -187,19 +158,20 @@ class MyYolo(BaseModel):
     """
     def _cross_attention(self,feature_1,feature_2):
 
-        query = self.linear_query(feature_1)
-        key = self.linear_key(feature_2)
-        value = self.linear_value(feature_2)
+        original_shape = feature_1.shape
+
+        reshaped_feature_map_1 = feature_1.view(feature_1.shape[0], feature_1.shape[1], -1)
+        reshaped_feature_map_2 = feature_2.view(feature_2.shape[0], feature_2.shape[1], -1)
+
+        query = self.linear_query(reshaped_feature_map_1)
+        key = self.linear_key(reshaped_feature_map_2)
+        value = self.linear_value(reshaped_feature_map_2)
 
         scores = torch.matmul(query, key.transpose(-2, -1))
         attention_weights = torch.nn.functional.softmax(scores,dim=-1)
         attended_feature_2 = torch.matmul(attention_weights, value)
 
-        """
-        scores = torch.matmul(feature_1, feature_2.transpose(-2, -1))  # Dot product
-        attention_weights = torch.nn.functional.softmax(scores, dim=-1)
-        attended_feature_2 = torch.matmul(attention_weights, feature_2)
-        """
+        attended_feature_2 = attended_feature_2.view(*original_shape)
 
         return attended_feature_2
 
