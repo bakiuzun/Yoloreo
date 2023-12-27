@@ -12,19 +12,16 @@ import numpy as np
 from PIL import Image
 import pandas as pd
 import sys
-from osgeo import gdal
 from ultralytics.models.yolo.detect import DetectionPredictor
 
 
 BASE_LABEL_FILE_PATH = "/share/projects/cicero/objdet/dataset/CICERO_stereo/train_label/1_Varengeville_sur_Mer/"
-BASE_IMG_FILE_PATH = "/share/projects/cicero/objdet/dataset/CICERO_stereo/images/1_Varengeville_sur_Mer/"
 
-def image_to_label_path(img_file):
+
+def image_to_label_path(img_file,patch1=True):
 
     img_file = img_file.split("/")
-    patch_name = "patches_cm2_txt"
-    if img_file[10] == "patches_img1":
-        patch_name = "patches_cm1_txt"
+    patch_name = "patches_cm1_txt" if patch1 else "patches_cm2_txt"
 
     # tiles_201802171130571_13440_09920.png -> tiles_201802171130571_13440_09920.txt
     img_file[-1] = img_file[-1].replace('.png', '.txt')
@@ -32,6 +29,8 @@ def image_to_label_path(img_file):
     label_path = BASE_LABEL_FILE_PATH + img_file[9] +  "/patches_cm_indiv_stereo/" + patch_name + "/" + img_file[-1]
 
     return label_path
+
+
 
 def get_label_info(path,index):
 
@@ -44,12 +43,10 @@ def get_label_info(path,index):
 
         for line in lines:
             data = line.strip().split(',')
-
             cls = np.vstack([cls, [0]])  # Append [0] as a single-row 2D array to cls
             bbox_values = np.array([float(data[1]), float(data[2]), float(data[3]), float(data[4])])
             bboxes = np.vstack([bboxes, bbox_values])  # Stack bbox_values vertically to bboxes array
             batch_idx = np.append(batch_idx, index)  # Append index to batch_idx array
-
 
     return {"bboxes":bboxes,"cls":cls,"batch_idx":batch_idx}
 
@@ -136,54 +133,42 @@ def save_image_using_label(image_path,label_path,save_path):
 
     for box in label_bboxes:
         x, y, w, h = [int(v * width) for v in box]  # Convert relative coordinates to pixels
-        x1, y1 = x - (w // 2), y - (h // 2)  # Calculate top-left corner
-        x2, y2 = x + (w // 2), y + (h // 2)  # Calculate bottom-right corner
+        x1, y1 = x - w // 2, y - h // 2  # Calculate top-left corner
+        x2, y2 = x + w // 2, y + h // 2  # Calculate bottom-right corner
         cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)  # Draw rectangle
 
     cv2.imwrite(save_path, image)
 
 
 
-def get_georeferenced_pos(path,stereo,x,y):
+def get_mean_std_dataset(csv_path):
+    x = pd.read_csv(csv_path)
 
-    def calculate(img_mere):
+    means = []
+    variance = []
 
-        ligne = path_split[-1].split("_")[-1]
-        col = path_split[-1].split("_")[-2]
+    for i in range(len(x)):
+        row = x.iloc[i]
+        img_1 = row["patch1"]
+        img_1 = np.array(cv2.imread(img_1, cv2.IMREAD_UNCHANGED))
+        means.append(np.mean(img_1[:,:,:3], axis=(0,1)))
 
-        dataset = gdal.Open(img_mere, gdal.GA_ReadOnly)
-        gt_img_mere = dataset.GetGeoTransform()
+    mu_rgb = np.mean(means, axis=0)
+
+    variances = []
 
 
-        col_pix = int(col)
-        lin_pix = int(ligne)
+    for i in range(2):
+        row = x.iloc[i]
+        img_1 = row["patch1"]
+        img_1 = np.array(cv2.imread(img_1, cv2.IMREAD_UNCHANGED))
 
+        var = np.mean((img_1[:,:,:3] - mu_rgb) ** 2, axis=(0,1))
+        variances.append(var)
 
-        x_geo_haut_gauche_patch = gt_img_mere[0] + (col_pix * gt_img_mere[1])
-        y_geo_haut_gauche_patch = gt_img_mere[3] + (lin_pix * gt_img_mere[5])
-
-        x_pixel = x
-        y_pixel = y
-        x_geo_pix = x_geo_haut_gauche_patch + (x_pixel * gt_img_mere[1])
-        y_geo_pix = y_geo_haut_gauche_patch + (y_pixel * gt_img_mere[5])
-
-        return x_geo_pix,y_geo_pix
-
-    path = path[:path.rfind('.')]
-    path_split = path.split("/")
-    ident = path_split[9]
-    if stereo:
-        ident_1 = ident.split("_")[0]
-        ident_2 = ident.split("_")[1]
-        img_mere_1 = BASE_IMG_FILE_PATH + ident + "/pair/" + ident_1 + "_" + ident_2 + ".PNG"
-        img_mere_2 = BASE_IMG_FILE_PATH + ident + "/pair/" + ident_2 + "_" + ident_1 + ".PNG"
-        calculate(img_mere_1)
-        calculate(img_mere_2)
-
-    else:
-        ident = BASE_IMG_FILE_PATH + ident + "/pair/" + ident + ".PNG"
-        calculate(ident)
-
+    std_rgb = np.sqrt(np.mean(variances, axis=0))  # std_rgb.shape == (3,)
+    print("MEAN: ",mu_rgb)
+    print("STD: ",std_rgb)
 
 
 
@@ -223,7 +208,7 @@ def parse_my_detection_model(d, ch, verbose=True):  # model_dict, input_channels
 
 
 
-    for i, (f, n, m, args) in enumerate((d['backbone'] + d['head1'])):  # from, number, module, args
+    for i, (f, n, m, args) in enumerate((d['backbone'] + d['head1']) + d['head2']):  # from, number, module, args
         m = getattr(torch.nn, m[3:]) if 'nn.' in m else globals()[m]  # get module
         for j, a in enumerate(args):
             if isinstance(a, str):
