@@ -225,8 +225,9 @@ class MyDetectionValidator(DetectionValidator):
             elif head_name == "both":
                 self.stats_both.append((correct_bboxes, pred[:, 4], pred[:, 5], cls.squeeze(-1)))  # (conf, pcls, tcls)
 
-    # preprocess is already done in the Dataset class
+
     def preprocess(self, batch,annotation_1,annotation_2):
+        # NOT USED NOW
         batch['img'] = batch['img'].to(self.device, non_blocking=True).float() / 255
 
         stereo_indices = []
@@ -266,12 +267,8 @@ class MyDetectionValidator(DetectionValidator):
         return batch,mono_anot,stereo_anot_1,stereo_anot_2
 
 
-
-
-
-
     def evaluate(self,model,device,conf=0.001):
-
+        # evaluate a model
         self.args.conf = conf
 
         self.device = device
@@ -303,12 +300,14 @@ class MyDetectionValidator(DetectionValidator):
 
             img = batch["img"]
             batch_head_1 = batch
+            # take only the patch_1 images for the first head
             batch_head_1["img"] = img[:,0]
             batch_head_1.update(patch_1_annotation)
             self.update_metrics(preds_head_1, batch_head_1,head_name="head1")
 
 
             batch_head_2 = batch
+            # take only the patch_2 images for the second head
             batch_head_2["img"] = img[:,1]
             batch_head_2.update(patch_2_annotation)
             self.update_metrics(preds_head_2, batch_head_2,head_name="head2")
@@ -316,7 +315,6 @@ class MyDetectionValidator(DetectionValidator):
 
         self.get_stats(head_name="head1")
         self.get_stats(head_name="head2")
-
 
         self.print_results(head="head1")
         self.print_results(head="head2")

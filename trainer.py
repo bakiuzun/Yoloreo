@@ -26,22 +26,28 @@ from ultralytics.engine.trainer import BaseTrainer
 
 class MyDetectionTrainer(BaseTrainer):
     def __init__(self,cfg,model,overrides=None):
-
+        """
+        Detection Trainer used to train,validate and save the metrics
+        call the method train
+        """
         self.args = get_cfg(cfg, overrides)
 
         self.device  = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.init_save_dirs()
 
-
         ## class names and number of class should be attached too,  check main.py
         self.model = model
         self.model.to(self.device)
         self.model.args = self.args
 
+        ## the path is determined by the mode
+        # the csv file that store all the images will be found like this
+        # f"csv/image_{mode}_split.csv"
+        # if mode = train, res: csv/image_train_split.csv
         self.train_dataset = CliffDataset(mode="train")
-
         self.validation_dataset = CliffDataset(mode="valid")
+
         self.validator = None # class Validator
 
         self.metrics_head_1 = None
@@ -80,11 +86,16 @@ class MyDetectionTrainer(BaseTrainer):
         self.tloss_head_2 = None
         self.tloss_head_1 = None
 
-
         self.loss_names = ['Loss']
 
 
     def init_save_dirs(self):
+        """
+        store the weights, configuration file cfg.yaml
+        and the model architecture yolov8.yaml
+        you should include save_dir: your_path
+        to the cfg.yaml
+        """
         self.save_dir = Path(self.args.save_dir)
         self.wdir = self.save_dir / 'weights_0'  # weights dir
 
@@ -94,12 +105,12 @@ class MyDetectionTrainer(BaseTrainer):
             counter += 1
 
         self.wdir.mkdir()
-        print("WEIGHT_",counter-1)
+
         cfg_source = Path("cfg.yaml")
-        shutil.copy(cfg_source, self.wdir / "cfg.yaml")
+        shutil.copy(cfg_source, self.wdir / "cfg.yaml") # change cfg.yaml to your conf name
 
         model_arch = Path("yolov8.yaml")
-        shutil.copy(model_arch, self.wdir / "yolov8.yaml")
+        shutil.copy(model_arch, self.wdir / "yolov8.yaml") # change yolov8.yaml to your yolo architecture name
 
         self.last, self.best = self.wdir / 'last.pt', self.wdir / 'best.pt'  # checkpoint paths
 
@@ -107,11 +118,7 @@ class MyDetectionTrainer(BaseTrainer):
         self.best_right_head = self.wdir / 'best_right_head.pt'
 
         current_date = datetime.now().strftime("%d_%H-%M-%S")
-        #self.csv = Path(f'res/results_{current_date}.csv')
         self.csv = self.wdir / "result.csv"
-
-
-
 
     def train(self):
         """Allow device='', device=None on Multi-GPU systems to default to device=0."""
@@ -123,7 +130,10 @@ class MyDetectionTrainer(BaseTrainer):
 
 
     def _setup_train(self, world_size):
-        """Builds dataloaders and optimizer on correct rank process."""
+        """
+        YOLO method
+        Builds dataloaders and optimizer on correct rank process.
+        """
 
         self.model = self.model.to(self.device)
 
@@ -161,8 +171,7 @@ class MyDetectionTrainer(BaseTrainer):
         metric_keys = self.validator.metrics.keys + self.label_loss_items(prefix='val')
         self.metrics_head_1 = dict(zip(metric_keys, [0] * len(metric_keys)))
         self.metrics_head_2 = dict(zip(metric_keys, [0] * len(metric_keys)))
-        self.metrics_both = dict(zip(metric_keys, [0] * len(metric_keys)))
-        #self.ema = ModelEMA(self.model)
+        #self.metrics_both = dict(zip(metric_keys, [0] * len(metric_keys)))
 
         # Optimizer
         self.accumulate = max(round(self.args.nbs / self.batch_size), 1)  # accumulate loss before optimizing
@@ -189,21 +198,24 @@ class MyDetectionTrainer(BaseTrainer):
 
 
     def _do_train(self,world_size):
-
+        """
+        Training process + validation for each epoch
+        """
         nb = len(self.train_loader)  # number of batches
         nw = max(round(self.args.warmup_epochs * nb), 100) if self.args.warmup_epochs > 0 else -1  # warmup iterations
         last_opt_step = -1
 
         epoch = self.epochs  # predefine for resume fully trained model edge cases
         for epoch in range(self.start_epoch, self.epochs):
-
             self.epoch = epoch
             self.model.train()
-            #pbar = enumerate(self.train_loader)
+
             pbar = TQDM(enumerate(self.train_loader), total=nb)
 
             self.tloss = None
             self.tloss_head_2 = None
+            self.tloss_head_1 = None
+
             self.optimizer.zero_grad()
             for i, batch in pbar:
 
@@ -220,17 +232,20 @@ class MyDetectionTrainer(BaseTrainer):
                             x['momentum'] = np.interp(ni, xi, [self.args.warmup_momentum, self.args.momentum])
 
                 # Forward
+                # amp.autocast used to perform operation with float16
                 with torch.cuda.amp.autocast(self.amp):
 
                     batch['img'] = batch['img'].to(self.device, non_blocking=True).float() / 255
 
                     features = self.model(batch["img"].to(self.device))
 
+                    # we get the labels here by using the img files stored in the batch
                     patch_1_annotation,patch_2_annotation = self.train_dataset.retrieve_annotation(batch,self.device)
 
-                    #batch['cls'] = patch_1_annotation['cls']
+                    ## only used to print the cls for the current batch
                     batch['cls'] = torch.cat((patch_1_annotation['cls'], patch_2_annotation['cls']))
 
+                    # x_1 refer to the output from the first head,x_2 for the second head
                     self.loss_head_1, self.loss_items_head_1 = self.criterion_head_1(features["x_1"],patch_1_annotation)
                     self.loss_head_2, self.loss_items_head_2 = self.criterion_head_2(features["x_2"],patch_2_annotation)
 
@@ -242,13 +257,12 @@ class MyDetectionTrainer(BaseTrainer):
                         else self.loss_items_head_2
 
                     self.tloss =  (self.tloss_head_1 + self.tloss_head_2)  / 2
-                    #self.tloss =  self.tloss_head_1
 
 
                 # Backward
-                #self.scaler.scale(self.loss_head_1).backward()
                 self.scaler.scale((self.loss_head_1 + self.loss_head_2) / 2 ).backward()
 
+                # the optimisation is done after some accumulation, this come from Ultralytics
                 # Optimize - https://pytorch.org/docs/master/notes/amp_examples.html
                 if ni - last_opt_step >= self.accumulate:
                     self.optimizer_step()
@@ -269,39 +283,39 @@ class MyDetectionTrainer(BaseTrainer):
                 warnings.simplefilter('ignore')  # suppress 'Detected lr_scheduler.step() before optimizer.step()'
                 self.scheduler.step()
 
-
+            # validation step
             self.metrics_head_1,self.fitness_head1, self.metrics_head_2,self.fitness_head2 = self.validate()
-            #self.metrics_head_1,self.metrics_head_2, self.metrics_both = self.validate()
+
 
             self.save_metrics(metrics={**self.label_loss_items(self.tloss), **self.metrics_head_1, **self.lr})
             self.save_metrics(metrics={**self.label_loss_items(self.tloss), **self.metrics_head_2, **self.lr})
             #self.save_metrics(metrics={**self.label_loss_items(self.tloss), **self.metrics_both, **self.lr})
             self.save_model()
 
-            #self.save_model()
+
             torch.cuda.empty_cache()  # clears GPU vRAM at end of epoch, can help with out of memory errors
 
-
-
         torch.cuda.empty_cache()
-        #self.save_model()
+
 
 
     def optimizer_step(self):
-        """Perform a single step of the training optimizer with gradient clipping and EMA update."""
+        """
+        YOLO method
+        Perform a single step of the training optimizer with gradient clipping and EMA update.
+        """
         self.scaler.unscale_(self.optimizer)  # unscale gradients
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=10.0)  # clip gradients
         self.scaler.step(self.optimizer)
         self.scaler.update()
         self.optimizer.zero_grad()
 
-        #if self.ema:
-        #    self.ema.update(self.model)
 
 
 
     def label_loss_items(self, loss_items=None, prefix='train'):
         """
+        YOLO method
         Returns a loss dict with labelled training loss items tensor.
 
         Not needed for classification but necessary for segmentation & detection
@@ -321,13 +335,10 @@ class MyDetectionTrainer(BaseTrainer):
     def validate(self):
 
         metrics_head_1,metrics_head_2 =  self.validator(trainer=self)
-        #metrics_head_1,metrics_head_2,metrics_both =  self.validator(trainer=self)
-        #fitness = metrics.pop('fitness', -((self.loss_head_1.detach().cpu().numpy() + self.loss_head_2.detach().cpu().numpy()) / 2 ))  # use loss as fitness measure if not found
+
         fitness_head_1 = metrics_head_1.pop('fitness')
         fitness_head_2 = metrics_head_2.pop('fitness')
         #fitness_both = metrics_both.pop('fitness')
-
-        #fitness = (fitness_head_1 + fitness_head_2) / 2
 
         print("FITNESS 1",fitness_head_1)
         print("FITNESS 2",fitness_head_2)
@@ -336,6 +347,7 @@ class MyDetectionTrainer(BaseTrainer):
         print("BEST FITNESS 2 ",self.best_fitness_head2)
         #print("BEST FITNESS BOTH",self.best_fitness_both)
 
+        # for the first epoch fitness will be None at start
         if self.best_fitness_head1 == None:
             self.best_fitness_head1 = fitness_head_1
             self.best_fitness_head2 = fitness_head_2
@@ -354,20 +366,14 @@ class MyDetectionTrainer(BaseTrainer):
     def save_model(self):
         """Save model training checkpoints with additional metadata."""
         import pandas as pd  # scope for faster startup
-        #metrics = {**self.metrics, **{'fitness': self.fitness}}
-        #results = {k.strip(): v for k, v in pd.read_csv(self.csv).to_dict(orient='list').items()}
+
         ckpt = {
             'epoch': self.epoch,
-            #'best_fitness': self.best_fitness,
             'model': deepcopy(de_parallel(self.model)).half(),
-            #'ema': deepcopy(self.ema.ema).half(),
-            #'updates': self.ema.updates,
-            #'optimizer': self.optimizer.state_dict(),
-            #'train_args': vars(self.args),  # save as dict
-            #'train_metrics': metrics,
-            #'train_results': results,
             'date': datetime.now().isoformat()
             }
 
+
+        # save only if the 2 head surpass their precedent best fitness
         if self.best_fitness_head1 == self.fitness_head1 and self.best_fitness_head2  == self.fitness_head2: #or self.best_fitness_both == self.fitness_both:
             torch.save(ckpt, self.best)

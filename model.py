@@ -5,13 +5,13 @@ import copy
 import numpy as np
 
 # torch.Size([16, 576, 20, 20]) backbone out shape
+
 class MyYolo(BaseModel):
     def __init__(self, cfg='yolov8n.yaml', ch=3, nc=None, verbose=False,weights=None):  # model, input channels, number of classes
         """Initialize the YOLOv8 detection model with the given config and parameters."""
 
         super().__init__()
 
-        self.first_forward = False
         self.yaml = cfg if isinstance(cfg, dict) else yaml_model_load(cfg)  # cfg dict
 
         # Define model
@@ -31,8 +31,7 @@ class MyYolo(BaseModel):
             first_head.inplace = self.inplace
             second_head.inplace = self.inplace
 
-            #forward = lambda x: self.forward(x)[0] if isinstance(m, (Segment, Pose)) else self.forward(x)
-            #m.stride = torch.tensor([s / x.shape[-2] for x in forward(torch.zeros(1, ch, s, s))])  # forward
+            # strides by default for objection detection with YOLOV8
             first_head.stride = torch.tensor([ 8., 16., 32.])
             second_head.stride = torch.tensor([ 8., 16., 32.])
             self.stride = first_head.stride
@@ -54,12 +53,13 @@ class MyYolo(BaseModel):
             self.enable_all_gradients()
 
 
+        # for cross attention
         self.linear_query = torch.nn.Conv1d(576, 576, 1)
         self.linear_key = torch.nn.Conv1d(576, 576, 1)
         self.linear_value = torch.nn.Conv1d(576, 576, 1)
 
-        self.head_1 = self.model[10:23]
         self.backbone = self.model[:10]
+        self.head_1 = self.model[10:23]
         self.head_2 = self.model[23:]
 
 
@@ -67,24 +67,14 @@ class MyYolo(BaseModel):
     def enable_all_gradients(self):
         for param in self.parameters():
             param.requires_grad = True
-    """
-    method used to build the stride
-    explanation: the super class call one forward with a lambda x to calculate the strides of the network
-    file: ultralytics/nn/task.py
-    line: 246
-    """
-    def _build_stride(self, x, profile=False, visualize=False):
-        self.first_forward = False
-        x = super()._predict_once(x, profile, visualize)
-        return x
 
 
     def forward(self, x, *args, **kwargs):
-
         return self._predict_once(x)
 
     def _predict_once(self, x):
 
+        # NOT USED NOW
         mono_res = None
 
         y_1 = []
@@ -129,6 +119,7 @@ class MyYolo(BaseModel):
             return x,y
 
         else:
+            # head 2
             for m in self.head_2:
                 if m.f != -1:  # if not from previous layer
                     if isinstance(m.f, int):
@@ -139,11 +130,13 @@ class MyYolo(BaseModel):
                             # -13, refers to the first layer of the second head which is at index 25 in the .yaml file
                             # 25 - 13 = 12 = first layer of the first head  and as the list y contain values only for the backbone at this stage
                             # we cannot get at index 25 it would throw an out of bound error.
-                            if j != -1:result.append(y[j-13] if j > 10 else y[j])
+                            # y index 0...9
+                            # refer to the yolov8.yaml
+                            if j != -1:
+                                result.append(y[j-13] if j > 10 else y[j])
                             else:result.append(x)
 
                         x = result
-
 
                 x = m(x)  # run
                 y.append(x if m.i in self.save else None)  # save output
@@ -176,11 +169,10 @@ class MyYolo(BaseModel):
         return attended_feature_2
 
     def load_pretrained_weights(self,weights):
-        #self.load(torch.load(weights))
+
         weights = torch.load(weights)
 
         ## LOAD HEAD 2 FROM HEAD 1 WEIGHTS
-
         head_2_dict = {}
         for name_1, param_1 in self.state_dict().items():
             name_1_number = int(name_1.split('.')[1])

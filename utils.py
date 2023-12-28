@@ -33,7 +33,11 @@ def image_to_label_path(img_file,patch1=True):
 
 
 def get_label_info(path,index):
-
+    """
+    from the label path, parameter:path
+    read the content and store bounding box, classes and the batch index
+    the batch index come from the paramter:index
+    """
     bboxes = np.empty((0, 4))  # Initialize bboxes as an empty NumPy array with shape (0, 4)
     batch_idx = np.array([], dtype=int)  # Initialize batch_idx as an empty NumPy array
     cls = np.empty((0, 1), dtype=int)  # Initialize cls as an empty 2D NumPy array with a single column
@@ -43,7 +47,7 @@ def get_label_info(path,index):
 
         for line in lines:
             data = line.strip().split(',')
-            cls = np.vstack([cls, [0]])  # Append [0] as a single-row 2D array to cls
+            cls = np.vstack([cls, [0]])
             bbox_values = np.array([float(data[1]), float(data[2]), float(data[3]), float(data[4])])
             bboxes = np.vstack([bboxes, bbox_values])  # Stack bbox_values vertically to bboxes array
             batch_idx = np.append(batch_idx, index)  # Append index to batch_idx array
@@ -51,8 +55,10 @@ def get_label_info(path,index):
     return {"bboxes":bboxes,"cls":cls,"batch_idx":batch_idx}
 
 def load_image(file_path):
+    """
+    load image using cv2
+    """
     try:
-        #return np.array(Image.open(file_path))
         return np.array(cv2.imread(file_path, cv2.IMREAD_UNCHANGED))
     except:
         print("Error couldn't open the file : ",file_path)
@@ -94,7 +100,7 @@ def get_min_max_dataset(mode="train"):
 
 
 def pred_one_image(model,image_path,mode="train",output_file=None):
-
+    """
     if output_file == None:
        output_file = "pred_res.txt"
 
@@ -111,6 +117,7 @@ def pred_one_image(model,image_path,mode="train",output_file=None):
 
     x = predictor(source=image ,model=model)
     x[0].save_txt(output_file,True)
+    """
 
 
 def save_image_using_label(image_path,label_path,save_path):
@@ -142,6 +149,9 @@ def save_image_using_label(image_path,label_path,save_path):
 
 
 def get_mean_std_dataset(csv_path):
+    """
+    calculate mean and std
+    """
     x = pd.read_csv(csv_path)
 
     means = []
@@ -157,8 +167,7 @@ def get_mean_std_dataset(csv_path):
 
     variances = []
 
-
-    for i in range(2):
+    for i in range(len(x)):
         row = x.iloc[i]
         img_1 = row["patch1"]
         img_1 = np.array(cv2.imread(img_1, cv2.IMREAD_UNCHANGED))

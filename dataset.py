@@ -9,6 +9,9 @@ import copy
 
 
 class CliffDataset(Dataset):
+    """
+    Cliff Dataset
+    """
     def __init__(self,mode="train"):
         self.mode = mode
         sample_file = f"csv/image_{mode}_split.csv"
@@ -23,6 +26,7 @@ class CliffDataset(Dataset):
         row = self.dataframe.iloc[idx]
         patch1 = row['patch1']
         patch2 = row['patch2']
+        # if patch 2 is  nan -> mono images
         stereo = False if pd.isna(patch2) else True
 
         im_files_patch1 = patch1
@@ -31,12 +35,15 @@ class CliffDataset(Dataset):
         image_patch_1 = load_image(patch1)[:,:,:3]
         image_patch_1 = image_patch_1.astype("float")
 
+
+        ## min max norm
         minn = np.min(image_patch_1)
         maxx = np.max(image_patch_1)
         image_patch_1 = (image_patch_1 - minn) / (maxx - minn)
         image_patch_1 = ToTensor()(image_patch_1)
 
         if stereo:
+            ## same process as the first image patch 1
             image_patch_2 = load_image(patch2)[:,:,:3]
             image_patch_2 = image_patch_2.astype("float")
 
@@ -46,12 +53,15 @@ class CliffDataset(Dataset):
             image_patch_2 = ToTensor()(image_patch_2)
 
         else:
+            # copy image 1 if it's not stereo
             image_patch_2 = copy.deepcopy(image_patch_1)
 
         image_patch_1 = image_patch_1.unsqueeze(0)
         image_patch_2 = image_patch_2.unsqueeze(0)
         data = torch.cat([image_patch_1, image_patch_2], dim=0)
 
+        # data shape (batch,2,channels,width,height)
+        # where 2 -> (image_patch_1, image_patch_2) where you can have stereo pair or image_patch_1 = image_patch_2 if stereo is False
         res = {"img":data,"stereo":stereo,"im_files_patch1":im_files_patch1,"im_files_patch2":im_files_patch2}
 
         return res
@@ -59,23 +69,26 @@ class CliffDataset(Dataset):
     def _get_label_file_info(self,patch_1_file,patch_2_file,stereo,index):
 
         """
-        bounding box .....
+        get the labels path from the images path and return the bounding box,cls,idx for each label
+        if it's not stereo we copy the mono image
         """
 
         label_1_path = image_to_label_path(img_file=patch_1_file,patch1=True)
         label_1_info = get_label_info(label_1_path,index)
 
         if stereo == False:
+            ## if not stereo copy the path of the mono image
             return label_1_info, copy.deepcopy(label_1_info)
         else:
-
             label_2_path = image_to_label_path(img_file=patch_2_file,patch1=False)
             label_2_info = get_label_info(label_2_path,index)
             return label_1_info,label_2_info
 
 
     def retrieve_annotation(self,batch,device):
-
+        """
+        method called during training to get the annotation (bounding box,cls,idx) from the image files
+        """
 
         patch_1_annotation = {"bboxes":[],"cls":[],"batch_idx":[]}
         patch_2_annotation = {"bboxes":[],"cls":[],"batch_idx":[]}

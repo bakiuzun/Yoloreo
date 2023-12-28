@@ -5,7 +5,7 @@ from torch.utils.data import DataLoader
 from model import MyYolo
 
 BASE_PATH = "/share/projects/cicero/checkpoints_baki/"
-BASE_PATH = ""
+
 model_config = {
     "arch": "yolov8.yaml",
     "checkpoint":BASE_PATH+"weights_0/best.pt"
@@ -18,17 +18,14 @@ model = MyYolo(cfg=model_config["arch"])
 model.load_pretrained_weights(model_config["checkpoint"])
 model.nc = 1
 model.names = {0:'erosion'}
-
-
+# freeze
 for k, v in model.named_parameters():v.requires_grad = False
 
-
 model.to(device)
-
 
 validation_dataset = CliffDataset(mode="valid")
 
 validation_loader =  DataLoader(validation_dataset ,batch_size=32,shuffle=False)
 validator = MyDetectionValidator(dataloader=validation_loader,dataset=validation_dataset)
 
-validator.evaluate(model,device)
+validator.evaluate(model,device,conf=0.25)
