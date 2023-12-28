@@ -13,7 +13,14 @@ BASE_LABEL_FILE_PATH = "/share/projects/cicero/objdet/dataset/CICERO_stereo/trai
 
 
 def write_to_csv(mode,dir_name,ratio_without_label=100.0):
-
+    """
+    create the dataset
+    param:
+        mode: train/validation used to create the file
+        dir_name: name of the directory to get the images
+        ratio_without_label: ratio used to control the number of images without label that is stored in the csv file
+        if ratio_without_label is set to 0, the csv file will contain only images that contain at least 1 object
+    """
     csv_file = f"{mode}_split.csv"
     stereo = dir_name.count("_") > 0
     patch_name = "patches_img1"
@@ -38,10 +45,14 @@ def write_to_csv(mode,dir_name,ratio_without_label=100.0):
                 label_2_file =  image_to_label_path(second_file_path,patch1=False)
                 this_second_file_contain_object = label_contain_object(label_2_file)
 
-
                 # if one of the patch contain an object we save it
                 if this_file_contain_object or this_second_file_contain_object:
                     csv_writer.writerow([patch_1_file,second_file_path])
+
+                    """
+                    uncomment if you want to store patch2 in a new line
+                    useful for the model with 1 head
+                    """
                     #csv_writer.writerow([patch_1_file])
                     #csv_writer.writerow([second_file_path])
                 else:
@@ -49,6 +60,11 @@ def write_to_csv(mode,dir_name,ratio_without_label=100.0):
                     if autorized_nb_images_without_label > 0:
                         autorized_nb_images_without_label -= 1
                         csv_writer.writerow([patch_1_file,second_file_path])
+
+                        """
+                        uncomment if you want to store patch2 in a new line
+                        useful for the model with 1 head
+                        """
                         #csv_writer.writerow([patch_1_file])
                         #csv_writer.writerow([second_file_path])
 
@@ -63,6 +79,9 @@ def write_to_csv(mode,dir_name,ratio_without_label=100.0):
 
 
 def label_contain_object(label_file):
+    """
+    check if an annotation file contains any object in it
+    """
     with open(label_file, 'r') as file:
             # Read lines from the file
         lines = file.readlines()
@@ -70,6 +89,9 @@ def label_contain_object(label_file):
 
 
 def get_second_patch_file_path(dir_name,file,patch_dir):
+    """
+    get the second patch2 name from the patch1 name
+    """
     second_patch_identifier = dir_name.split("_")[1]
     splitted_file = patch_dir.split("/")
 
@@ -85,6 +107,8 @@ def get_second_patch_file_path(dir_name,file,patch_dir):
 
 def ret_box(path):
     """
+    return the bounding box with the name too "erosion" for our cases
+    this is used to have new bounding boxes coordinates after augmentation
     tiny change compared to the method in the utils file
     """
     bboxes = []  # Initialize bboxes as an empty NumPy array with shape (0, 4)
@@ -101,6 +125,10 @@ def ret_box(path):
 
 
 def create_new_image_path(base_image_path,index):
+    """
+    create a new path from a base path
+    we just add aug+index to create the new image
+    """
     splitted = base_image_path.split("/")
     last_name = splitted[-1]
     last_name_splitted = last_name.split("_")
@@ -113,7 +141,9 @@ def create_new_image_path(base_image_path,index):
 
 
 def get_random_patch_index(df):
-
+    """
+    get a random stereo patch
+    """
     random_index = random.randint(0, len(df) - 1)
 
     while (pd.isna(df.iloc[random_index]["patch2"]) == True):
@@ -124,7 +154,9 @@ def get_random_patch_index(df):
 
 
 def save_img(path,img):
-
+    """
+    0-255 scale then save the image
+    """
     minn = np.min(img)
     maxx = np.max(img)
 
@@ -135,6 +167,9 @@ def save_img(path,img):
 
 
 def delete_augmented(file,only_stereo=True):
+    """
+    delete the images that are augmented
+    """
     ## only stereo not used right now
     from utils import (image_to_label_path)
 
@@ -146,6 +181,7 @@ def delete_augmented(file,only_stereo=True):
         image_path = row["patch1"]
 
         stereo = pd.isna(row["patch2"]) == False
+
         if stereo:
             if "aug" in image_path:
                 os.remove(image_path)
@@ -155,10 +191,18 @@ def delete_augmented(file,only_stereo=True):
                 os.remove(path_2)
                 os.remove(image_to_label_path(path_2,False))
 
+        if only_stereo == False:
+            if "aug" in image_path:
+                os.remove(image_path)
+                os.remove(image_to_label_path(image_path))
+
+
 
 
 def mixup_image(img1,img2):
-
+    """
+    mix two image and get one image as result
+    """
     alpha = 0.5
     lam =  np.random.beta(alpha,alpha)
     mixed_image1 = lam * img1 + (1 - lam) * img2
@@ -168,7 +212,10 @@ def mixup_image(img1,img2):
     return transformed_image
 
 def write_annot(file,bboxes,option="w"):
-
+    """
+    write the bounding boxes to a file
+    class 0 by default
+    """
     with open(file,option) as new_annot:
         for boxe in bboxes:
             thing_to_save = f"0,{boxe[0]},{boxe[1]},{boxe[2]},{boxe[3]}\n"
@@ -177,8 +224,13 @@ def write_annot(file,bboxes,option="w"):
         new_annot.close()
 
 
-
 def augment_and_save(csv_path):
+    """
+    augment the dataset
+    stereo and mono images
+    stereo images are augmented with mixup
+    mono images are augmented with rotation and horizontal flip
+    """
     import albumentations as A
     from utils import (image_to_label_path)
     df = pd.read_csv(csv_path)
@@ -193,6 +245,7 @@ def augment_and_save(csv_path):
     for i in range(len(df)):
         row = df.iloc[i]
 
+        # first image
         image_path = row["patch1"]
         label = image_to_label_path(image_path,True)
         bboxes = ret_box(label)
@@ -202,13 +255,16 @@ def augment_and_save(csv_path):
             image = np.array(cv2.imread(image_path,cv2.IMREAD_UNCHANGED))
             image = image[:,:,:3]
 
-
             stereo_path = row["patch2"]
             image_2 = np.array(cv2.imread(stereo_path,cv2.IMREAD_UNCHANGED))
             image_2 = image_2[:,:,:3]
             label_2 = image_to_label_path(stereo_path,False)
             bboxes_2 = ret_box(label_2)
             for i in range(5):
+
+                # for the same random pair
+                # augment patch2 with the random patch2
+                # augment patch1 with the random patch1
                 random_index = get_random_patch_index(df)
                 random_second_img_path = df.iloc[random_index]["patch2"]
                 random_second_img =   np.array(cv2.imread(random_second_img_path,cv2.IMREAD_UNCHANGED))
@@ -226,10 +282,8 @@ def augment_and_save(csv_path):
 
                 mixup_img_2  =  mixup_image(image,random_second_img_2)
 
-
                 new_img_1_path = create_new_image_path(image_path,i)
                 new_img_2_path = create_new_image_path(stereo_path,i)
-
 
                 label1 = image_to_label_path(new_img_1_path,True)
                 label2 = image_to_label_path(new_img_2_path,False)
@@ -237,15 +291,15 @@ def augment_and_save(csv_path):
                 write_annot(label1,bboxes_random_2,option="a")
                 write_annot(label1,bboxes,option="a")
                 cv2.imwrite(new_img_1_path,mixup_img_2.astype(np.uint16))
-                #cv2.imwrite(new_img_1_path,image.astype(np.uint16))
-
 
                 write_annot(label2,bboxes_random,option="a")
                 write_annot(label2,bboxes_2,option="a")
                 cv2.imwrite(new_img_2_path,mixup_img.astype(np.uint16))
 
-            """
             else:
+                # if not stereo
+                # make 10 representation of the current image
+                # save the augmented image and the new label file
                 for i in range(10):
                     new_image_path =  create_new_image_path(image_path,i)
 
@@ -264,7 +318,6 @@ def augment_and_save(csv_path):
                         new_annot.close()
 
                     cv2.imwrite(new_image_path,transformed_image)
-            """
 
 
 mono_images_train = {'201401131052058': 78, '201701261109474': 11, '202304241128373': 57,
