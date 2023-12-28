@@ -10,7 +10,7 @@ from trainer import MyDetectionTrainer
 
 model_config = {
     "arch": "yolov8.yaml",
-    "checkpoint":"imported/yolov8l.pt"
+    "checkpoint":"imported/yolov8m.pt"
 }
 
 ## model def

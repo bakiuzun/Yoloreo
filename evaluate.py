@@ -4,9 +4,11 @@ from dataset import CliffDataset
 from torch.utils.data import DataLoader
 from model import MyYolo
 
+BASE_PATH = "/share/projects/cicero/checkpoints_baki/"
+BASE_PATH = ""
 model_config = {
     "arch": "yolov8.yaml",
-    "checkpoint":"weights_0/best.pt"
+    "checkpoint":BASE_PATH+"weights_0/best.pt"
 }
 
 device  = torch.device("cuda" if torch.cuda.is_available() else "cpu")

@@ -12,7 +12,7 @@ BASE_LABEL_FILE_PATH = "/share/projects/cicero/objdet/dataset/CICERO_stereo/trai
 
 
 
-def write_to_csv(mode,dir_name,ratio_without_label=0.0):
+def write_to_csv(mode,dir_name,ratio_without_label=100.0):
 
     csv_file = f"{mode}_split.csv"
     stereo = dir_name.count("_") > 0
@@ -41,16 +41,16 @@ def write_to_csv(mode,dir_name,ratio_without_label=0.0):
 
                 # if one of the patch contain an object we save it
                 if this_file_contain_object or this_second_file_contain_object:
-                    #csv_writer.writerow([patch_1_file,second_file_path])
-                    csv_writer.writerow([patch_1_file])
-                    csv_writer.writerow([second_file_path])
+                    csv_writer.writerow([patch_1_file,second_file_path])
+                    #csv_writer.writerow([patch_1_file])
+                    #csv_writer.writerow([second_file_path])
                 else:
                     # if no object in 2 patches we check if we can save it
                     if autorized_nb_images_without_label > 0:
                         autorized_nb_images_without_label -= 1
-                        #csv_writer.writerow([patch_1_file,second_file_path])
-                        csv_writer.writerow([patch_1_file])
-                        csv_writer.writerow([second_file_path])
+                        csv_writer.writerow([patch_1_file,second_file_path])
+                        #csv_writer.writerow([patch_1_file])
+                        #csv_writer.writerow([second_file_path])
 
             else:
                 if this_file_contain_object:
@@ -59,6 +59,8 @@ def write_to_csv(mode,dir_name,ratio_without_label=0.0):
                     if autorized_nb_images_without_label > 0:
                         autorized_nb_images_without_label -= 1
                         csv_writer.writerow([patch_1_file])
+
+
 
 def label_contain_object(label_file):
     with open(label_file, 'r') as file:
@@ -154,8 +156,6 @@ def delete_augmented(file,only_stereo=True):
                 os.remove(image_to_label_path(path_2,False))
 
 
-#delete_augmented("csv/image_train_split.csv")
-
 
 def mixup_image(img1,img2):
 
@@ -218,8 +218,7 @@ def augment_and_save(csv_path):
 
                 mixup_img  =  mixup_image(image_2,random_second_img)
 
-
-                random_second_img_path_2 = df.iloc[random_index]["patch1"]
+                random_second_img_path_2 = df.iloc[get_random_patch_index(df)]["patch1"]
                 random_second_img_2 =   np.array(cv2.imread(random_second_img_path_2,cv2.IMREAD_UNCHANGED))
                 random_second_img_2 = random_second_img_2[:,:,:3]
                 label_random_patch2 = image_to_label_path(random_second_img_path_2,True)
@@ -246,24 +245,25 @@ def augment_and_save(csv_path):
                 cv2.imwrite(new_img_2_path,mixup_img.astype(np.uint16))
 
             """
-            for i in range(10):
-                new_image_path =  create_new_image_path(image_path,i)
+            else:
+                for i in range(10):
+                    new_image_path =  create_new_image_path(image_path,i)
 
 
-                label = image_to_label_path(new_image_path,True)
+                    label = image_to_label_path(new_image_path,True)
 
-                transformed = transform(image=image,bboxes=bboxes)
-                transformed_bboxes = transformed['bboxes']
-                transformed_image = transformed["image"]
+                    transformed = transform(image=image,bboxes=bboxes)
+                    transformed_bboxes = transformed['bboxes']
+                    transformed_image = transformed["image"]
 
-                with open(label,'w') as new_annot:
-                    for boxe in transformed_bboxes:
-                        thing_to_save = f"0,{boxe[0]},{boxe[1]},{boxe[2]},{boxe[3]}\n"
-                        new_annot.write(thing_to_save)
+                    with open(label,'w') as new_annot:
+                        for boxe in transformed_bboxes:
+                            thing_to_save = f"0,{boxe[0]},{boxe[1]},{boxe[2]},{boxe[3]}\n"
+                            new_annot.write(thing_to_save)
 
-                    new_annot.close()
+                        new_annot.close()
 
-                cv2.imwrite(new_image_path,transformed_image)
+                    cv2.imwrite(new_image_path,transformed_image)
             """
 
 
@@ -286,8 +286,9 @@ stereo_images_val= {'202106051121186_202106051121491': 144,'201706101120101_2017
 
 #augment_and_save('dataset_for_augs.csv')
 
+#delete_augmented("csv/image_train_split.csv")
 
-for i in stereo_images_train:write_to_csv("image_train",i)
-#for i in stereo_images_val:write_to_csv("image_valid",i)
-for i in mono_images_train:write_to_csv("image_train",i)
-#for i in mono_images_val:write_to_csv("image_valid",i)
+#for i in stereo_images_train:write_to_csv("image_train",i)
+for i in stereo_images_val:write_to_csv("image_valid",i)
+#for i in mono_images_train:write_to_csv("image_train",i)
+for i in mono_images_val:write_to_csv("image_valid",i)

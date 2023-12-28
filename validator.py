@@ -46,6 +46,7 @@ class MyDetectionValidator(DetectionValidator):
 
         self.dataset = dataset
 
+
     @smart_inference_mode()
     def __call__(self, trainer=None):
 
@@ -265,7 +266,13 @@ class MyDetectionValidator(DetectionValidator):
         return batch,mono_anot,stereo_anot_1,stereo_anot_2
 
 
-    def evaluate(self,model,device):
+
+
+
+
+    def evaluate(self,model,device,conf=0.001):
+
+        self.args.conf = conf
 
         self.device = device
         self.args.half = self.device.type != 'cpu'  # force FP16 val during training

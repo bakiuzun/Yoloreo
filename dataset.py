@@ -7,6 +7,7 @@ from utils import (load_image,image_to_label_path,get_label_info)
 import copy
 
 
+
 class CliffDataset(Dataset):
     def __init__(self,mode="train"):
         self.mode = mode
@@ -35,7 +36,6 @@ class CliffDataset(Dataset):
         image_patch_1 = (image_patch_1 - minn) / (maxx - minn)
         image_patch_1 = ToTensor()(image_patch_1)
 
-
         if stereo:
             image_patch_2 = load_image(patch2)[:,:,:3]
             image_patch_2 = image_patch_2.astype("float")
@@ -50,7 +50,6 @@ class CliffDataset(Dataset):
 
         image_patch_1 = image_patch_1.unsqueeze(0)
         image_patch_2 = image_patch_2.unsqueeze(0)
-
         data = torch.cat([image_patch_1, image_patch_2], dim=0)
 
         res = {"img":data,"stereo":stereo,"im_files_patch1":im_files_patch1,"im_files_patch2":im_files_patch2}

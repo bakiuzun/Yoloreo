@@ -88,13 +88,13 @@ class MyDetectionTrainer(BaseTrainer):
         self.save_dir = Path(self.args.save_dir)
         self.wdir = self.save_dir / 'weights_0'  # weights dir
 
-        counter = 1
+        counter = 0
         while self.wdir.exists():
             self.wdir = self.save_dir / f'weights_{counter}'  # Modify directory name
             counter += 1
 
         self.wdir.mkdir()
-
+        print("WEIGHT_",counter-1)
         cfg_source = Path("cfg.yaml")
         shutil.copy(cfg_source, self.wdir / "cfg.yaml")
 
@@ -102,6 +102,9 @@ class MyDetectionTrainer(BaseTrainer):
         shutil.copy(model_arch, self.wdir / "yolov8.yaml")
 
         self.last, self.best = self.wdir / 'last.pt', self.wdir / 'best.pt'  # checkpoint paths
+
+        self.best_left_head = self.wdir / 'best_left_head.pt'
+        self.best_right_head = self.wdir / 'best_right_head.pt'
 
         current_date = datetime.now().strftime("%d_%H-%M-%S")
         #self.csv = Path(f'res/results_{current_date}.csv')
@@ -150,7 +153,7 @@ class MyDetectionTrainer(BaseTrainer):
         batch_size = self.batch_size
 
         self.train_loader =  DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True,num_workers=self.args.workers)
-        self.validation_loader =  DataLoader(self.validation_dataset ,batch_size=100,shuffle=True, num_workers=self.args.workers)
+        self.validation_loader =  DataLoader(self.validation_dataset ,batch_size=32,shuffle=True)
 
 
         ## Validation
@@ -267,11 +270,12 @@ class MyDetectionTrainer(BaseTrainer):
                 self.scheduler.step()
 
 
-            self.metrics_head_1,self.metrics_head_2, self.metrics_both = self.validate()
+            self.metrics_head_1,self.fitness_head1, self.metrics_head_2,self.fitness_head2 = self.validate()
+            #self.metrics_head_1,self.metrics_head_2, self.metrics_both = self.validate()
 
             self.save_metrics(metrics={**self.label_loss_items(self.tloss), **self.metrics_head_1, **self.lr})
             self.save_metrics(metrics={**self.label_loss_items(self.tloss), **self.metrics_head_2, **self.lr})
-            self.save_metrics(metrics={**self.label_loss_items(self.tloss), **self.metrics_both, **self.lr})
+            #self.save_metrics(metrics={**self.label_loss_items(self.tloss), **self.metrics_both, **self.lr})
             self.save_model()
 
             #self.save_model()
@@ -316,32 +320,34 @@ class MyDetectionTrainer(BaseTrainer):
 
     def validate(self):
 
-        metrics_head_1,metrics_head_2,metrics_both =  self.validator(trainer=self)
+        metrics_head_1,metrics_head_2 =  self.validator(trainer=self)
+        #metrics_head_1,metrics_head_2,metrics_both =  self.validator(trainer=self)
         #fitness = metrics.pop('fitness', -((self.loss_head_1.detach().cpu().numpy() + self.loss_head_2.detach().cpu().numpy()) / 2 ))  # use loss as fitness measure if not found
         fitness_head_1 = metrics_head_1.pop('fitness')
         fitness_head_2 = metrics_head_2.pop('fitness')
-        fitness_both = metrics_both.pop('fitness')
+        #fitness_both = metrics_both.pop('fitness')
 
         #fitness = (fitness_head_1 + fitness_head_2) / 2
 
         print("FITNESS 1",fitness_head_1)
         print("FITNESS 2",fitness_head_2)
-        print("FITNESS BOTH ",fitness_both)
+        #print("FITNESS BOTH ",fitness_both)
         print("BEST FITNESS 1 ",self.best_fitness_head1)
         print("BEST FITNESS 2 ",self.best_fitness_head2)
-        print("BEST FITNESS BOTH",self.best_fitness_both)
+        #print("BEST FITNESS BOTH",self.best_fitness_both)
 
         if self.best_fitness_head1 == None:
             self.best_fitness_head1 = fitness_head_1
             self.best_fitness_head2 = fitness_head_2
-            self.best_fitness_both  = fitness_both
+            #self.best_fitness_both  = fitness_both
         else:
-            if fitness_head_1 > self.best_fitness_head1 and  fitness_head_2 > self.best_fitness_head2 and fitness_both > self.best_fitness_both:
+            if fitness_head_1 > self.best_fitness_head1 and fitness_head_2 > self.best_fitness_head2:
                 self.best_fitness_head1 = fitness_head_1
                 self.best_fitness_head2 = fitness_head_2
-                self.best_fitness_both  = fitness_both
+                #self.best_fitness_both  = fitness_both
 
-        return metrics_head_1,metrics_head_2, metrics_both
+
+        return metrics_head_1,fitness_head_1,metrics_head_2,fitness_head_2 #, metrics_both
 
 
 
@@ -356,19 +362,12 @@ class MyDetectionTrainer(BaseTrainer):
             'model': deepcopy(de_parallel(self.model)).half(),
             #'ema': deepcopy(self.ema.ema).half(),
             #'updates': self.ema.updates,
-            'optimizer': self.optimizer.state_dict(),
-            'train_args': vars(self.args),  # save as dict
+            #'optimizer': self.optimizer.state_dict(),
+            #'train_args': vars(self.args),  # save as dict
             #'train_metrics': metrics,
             #'train_results': results,
             'date': datetime.now().isoformat()
             }
 
-        # Save last and best
-        #torch.save(ckpt, self.last)
-        if self.best_fitness_head1  == self.fitness_head1 or self.best_fitness_head2  == self.fitness_head2 or self.best_fitness_both == self.fitness_both :
-            print("GIRDI")
+        if self.best_fitness_head1 == self.fitness_head1 and self.best_fitness_head2  == self.fitness_head2: #or self.best_fitness_both == self.fitness_both:
             torch.save(ckpt, self.best)
-
-
-        #if self.epoch + 1 == self.args.epochs:
-        #    torch.save(ckpt, self.last)
