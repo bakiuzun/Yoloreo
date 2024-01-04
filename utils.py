@@ -63,6 +63,14 @@ def load_image(file_path):
     except:
         print("Error couldn't open the file : ",file_path)
 
+def min_max_norm(img):
+    minn = np.min(img)
+    maxx = np.max(img)
+    return (img - minn) / (maxx - minn)
+
+
+def is_stereo(path):
+    return path.split("/")[8].count("_") > 0
 
 
 def get_min_max_dataset(mode="train"):
@@ -182,6 +190,38 @@ def get_mean_std_dataset(csv_path):
 
 
 
+def get_georeferenced_pos(path,x,y):
+
+    def calculate(img_mere):
+
+        ligne = path_split[-1].split("_")[-1]
+        col = path_split[-1].split("_")[-2]
+
+        dataset = gdal.Open(img_mere, gdal.GA_ReadOnly)
+        gt_img_mere = dataset.GetGeoTransform()
+
+        col_pix = int(col)
+        lin_pix = int(ligne)
+
+        x_geo_haut_gauche_patch = gt_img_mere[0] + (col_pix * gt_img_mere[1])
+        y_geo_haut_gauche_patch = gt_img_mere[3] + (lin_pix * gt_img_mere[5])
+
+        x_pixel = x
+        y_pixel = y
+        x_geo_pix = x_geo_haut_gauche_patch + (x_pixel * gt_img_mere[1])
+        y_geo_pix = y_geo_haut_gauche_patch + (y_pixel * gt_img_mere[5])
+
+        return x_geo_pix,y_geo_pix
+
+    # path represent the path of the patch
+    path = path[:path.rfind('.')]
+    path_split = path.split("/")
+    ident = path_split[9]
+
+    #ident represent the base image of the patch
+    ident = BASE_IMG_FILE_PATH + ident + "/pair/" + ident + ".PNG"
+
+    return calculate(ident)
 
 ## YOLOV8 METHOD
 def parse_my_detection_model(d, ch, verbose=True):  # model_dict, input_channels(3)
