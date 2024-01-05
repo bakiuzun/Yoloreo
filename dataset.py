@@ -12,9 +12,14 @@ class CliffDataset(Dataset):
     """
     Cliff Dataset
     """
-    def __init__(self,mode="train"):
+    def __init__(self,mode=None,path=None):
+        if mode == None and path != None:
+            sample_file = path
+        elif mode != None and path == None:
+            sample_file = f"image_{mode}_split.csv"
+        else:
+            raise RuntimeError("path or mode should be given")
         self.mode = mode
-        sample_file = f"csv/image_{mode}_split.csv"
         self.dataframe = pd.read_csv(sample_file)
 
     def __len__(self):
