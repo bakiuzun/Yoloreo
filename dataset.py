@@ -44,7 +44,7 @@ class CliffDataset(Dataset):
         ## min max norm
         minn = np.min(image_patch_1)
         maxx = np.max(image_patch_1)
-        image_patch_1 = (image_patch_1 - minn) / (maxx - minn)
+        image_patch_1 = ((image_patch_1 - minn) / (maxx - minn)) * 255
         image_patch_1 = ToTensor()(image_patch_1)
 
         if stereo:
@@ -54,7 +54,7 @@ class CliffDataset(Dataset):
 
             minn = np.min(image_patch_2)
             maxx = np.max(image_patch_2)
-            image_patch_2 = (image_patch_2 - minn) / (maxx - minn)
+            image_patch_2 = ((image_patch_2 - minn) / (maxx - minn)) * 255
             image_patch_2 = ToTensor()(image_patch_2)
 
         else:
