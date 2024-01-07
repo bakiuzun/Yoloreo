@@ -5,8 +5,13 @@ import torch
 
 from ultralytics.utils import LOGGER, TQDM
 from ultralytics.utils import ops
+
 from ultralytics.engine.results import Results
-from utils import save_image_with_bbox
+import geopandas as gpd
+from shapely.geometry import Polygon
+
+from utils import save_image_with_bbox,get_georeferenced_pos
+
 
 class YoloreoPredictor(DetectionPredictor):
     def __init__(self,cfg,csv_path,model,conf=0.25):
@@ -24,8 +29,9 @@ class YoloreoPredictor(DetectionPredictor):
         self.model = self.model.float()
         self.model.eval()
 
+        self.georef_poses = []
 
-    def predict(self,save_res=False):
+    def predict(self,save_res=False,create_shape_file=False):
 
 
         for idx,batch in enumerate(self.dataloader):
@@ -39,10 +45,13 @@ class YoloreoPredictor(DetectionPredictor):
             self.result_head_1 = self.postprocess(out["x_1"], batch["img"][:,0], batch["img"][:,0])
             self.result_head_2 = self.postprocess(out["x_2"], batch["img"][:,1], batch["img"][:,1],head="head2")
 
-            self.handle_result(save_res,idx)
+            self.handle_result(save_res,create_shape_file,idx)
+
+        if create_shape_file:
+            self.create_shape_file()
 
 
-    def handle_result(self,save_img_res,idx):
+    def handle_result(self,save_img_res,create_shape_file,idx):
 
         for i in range(len(self.result_head_1)):
             res_head_1 = self.result_head_1[i]
@@ -57,6 +66,32 @@ class YoloreoPredictor(DetectionPredictor):
                 ## THE IMAGE IS THE SAME
                 if save_img_res:
                     save_image_with_bbox(res_head_1.orig_img,f"head1_head2_{i+(self.batch_size*idx)}.png",res_head_1.boxes,res_head_2.boxes)
+
+                if create_shape_file:
+                    self.fill_georef_poses(res_head_1.path,res_head_1.boxes)
+                    self.fill_georef_poses(res_head_2.path,res_head_2.boxes)
+
+    def fill_georef_poses(self,path,bbox):
+
+        for pos in bbox.xyxy.cpu().numpy():
+            xy = get_georeferenced_pos(path,int(pos[0]),int(pos[1]))
+            xy2 = get_georeferenced_pos(path,int(pos[2]),int(pos[3]))
+
+            self.georef_poses.append([xy[0],xy[1],xy2[0],xy2[1]])
+
+    def create_shape_file(self):
+
+        polygons = [Polygon([(bbox[0], bbox[1]), (bbox[2], bbox[1]),(bbox[2], bbox[3]), (bbox[0], bbox[3])]) for bbox in self.georef_poses]
+
+        if len(polygons) > 0:
+            data = {'geometry': polygons}
+            gdf = gpd.GeoDataFrame(data, crs='EPSG:4326')  # Change EPSG code as needed
+
+            # Save the GeoDataFrame to a shapefile
+            output_shapefile = 'bounding_boxes.shp'
+            gdf.to_file(output_shapefile)
+
+
 
 
     def preprocess(self,batch):
