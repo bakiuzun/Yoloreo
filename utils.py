@@ -223,6 +223,20 @@ def get_georeferenced_pos(path,x,y):
 
     return calculate(ident)
 
+
+def save_image_with_bbox(img,save_path,bbox,second_head_bbox=None):
+    """
+    If second head bboxe is not Not, the result image will contain bounding box from 2 sources (bbox,second_head_bbox)
+    """
+    for box in bbox.xyxy:
+        cv2.rectangle(img,(int(box[0]),int(box[1])),(int(box[2]),int(box[3])),(0, 255, 0), 2)
+
+    if second_head_bbox != None:
+        for box in second_head_bbox.xyxy:
+            cv2.rectangle(img,(int(box[0]),int(box[1])),(int(box[2]),int(box[3])),(0, 255, 0), 2)
+
+    cv2.imwrite(save_path,img)
+
 ## YOLOV8 METHOD
 def parse_my_detection_model(d, ch, verbose=True):  # model_dict, input_channels(3)
     """Parse a YOLO model.yaml dictionary into a PyTorch model."""
