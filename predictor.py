@@ -9,12 +9,12 @@ from ultralytics.utils import ops
 from ultralytics.engine.results import Results
 import geopandas as gpd
 from shapely.geometry import Polygon
-
+from georef_bbox import GeorefBbox
 from utils import save_image_with_bbox,get_georeferenced_pos
 
 
 class YoloreoPredictor(DetectionPredictor):
-    def __init__(self,cfg,csv_path,model,conf=0.25):
+    def __init__(self,cfg,csv_path,model,conf=0.50):
 
         super().__init__(cfg=cfg)
 
@@ -29,6 +29,10 @@ class YoloreoPredictor(DetectionPredictor):
         self.model = self.model.float()
         self.model.eval()
 
+
+        self.attr_heads = []
+        self.attr_base_img_ids = []
+        self.attr_patch_ids = []
         self.georef_poses = []
 
     def predict(self,save_res=False,create_shape_file=False):
@@ -68,23 +72,48 @@ class YoloreoPredictor(DetectionPredictor):
                     save_image_with_bbox(res_head_1.orig_img,f"head1_head2_{i+(self.batch_size*idx)}.png",res_head_1.boxes,res_head_2.boxes)
 
                 if create_shape_file:
-                    self.fill_georef_poses(res_head_1.path,res_head_1.boxes)
-                    self.fill_georef_poses(res_head_2.path,res_head_2.boxes)
+                    self.fill_georef_poses(res_head_1.path,res_head_1.boxes,1)
+                    self.fill_georef_poses(res_head_2.path,res_head_2.boxes,2)
 
-    def fill_georef_poses(self,path,bbox):
+    def fill_georef_poses(self,path,bbox,head_num):
 
         for pos in bbox.xyxy.cpu().numpy():
-            xy = get_georeferenced_pos(path,int(pos[0]),int(pos[1]))
-            xy2 = get_georeferenced_pos(path,int(pos[2]),int(pos[3]))
+            x,y,base_img_id,patch_id = get_georeferenced_pos(path,int(pos[0]),int(pos[1]))
+            x2,y2,_,_ = get_georeferenced_pos(path,int(pos[2]),int(pos[3]))
 
-            self.georef_poses.append([xy[0],xy[1],xy2[0],xy2[1]])
+            self.attr_heads.append(head_num)
+            self.attr_base_img_ids.append(base_img_id)
+            self.attr_patch_ids.append(patch_id)
+            self.georef_poses.append([x,y,x2,y2])
 
     def create_shape_file(self):
 
-        polygons = [Polygon([(bbox[0], bbox[1]), (bbox[2], bbox[1]),(bbox[2], bbox[3]), (bbox[0], bbox[3])]) for bbox in self.georef_poses]
+        print("LEN ",len(self.georef_poses))
+
+        polygons = []
+        bbox_x1 = []
+        bbox_y1 = []
+        bbox_x2 = []
+        bbox_y2 = []
+        for bbox in self.georef_poses:
+            bbox_y1.append(bbox[1])
+            bbox_x1.append(bbox[0])
+            bbox_y2.append(bbox[2])
+            bbox_x2.append(bbox[3])
+            polygons.append(Polygon([(bbox[0], bbox[1]), (bbox[2], bbox[1]),(bbox[2], bbox[3]), (bbox[0], bbox[3])]))
 
         if len(polygons) > 0:
-            data = {'geometry': polygons}
+            #data = {'geometry': polygons}
+            data = {
+            'geometry': polygons,
+            'heads': self.attr_heads,
+            'img_id': self.attr_base_img_ids,
+            'patch_ids': self.attr_patch_ids,
+            "bbox_x1": bbox_x1,
+            "bbox_y1": bbox_y1,
+            "bbox_x2": bbox_x2,
+            "bbox_y2": bbox_y2,
+            }
             gdf = gpd.GeoDataFrame(data, crs='EPSG:4326')  # Change EPSG code as needed
 
             # Save the GeoDataFrame to a shapefile

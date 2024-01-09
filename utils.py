@@ -13,6 +13,9 @@ from PIL import Image
 import pandas as pd
 import sys
 from ultralytics.models.yolo.detect import DetectionPredictor
+import sys
+from ultralytics.models.yolo.detect import DetectionPredictor
+from osgeo import gdal
 
 
 BASE_LABEL_FILE_PATH = "/share/projects/cicero/objdet/dataset/CICERO_stereo/train_label/1_Varengeville_sur_Mer/"
@@ -208,10 +211,11 @@ def get_georeferenced_pos(path,x,y):
 
         x_pixel = x
         y_pixel = y
+
         x_geo_pix = x_geo_haut_gauche_patch + (x_pixel * gt_img_mere[1])
         y_geo_pix = y_geo_haut_gauche_patch + (y_pixel * gt_img_mere[5])
 
-        return x_geo_pix,y_geo_pix
+        return  x_geo_pix,y_geo_pix,path_split[9],col+"_"+ligne
 
     # path represent the path of the patch
     path = path[:path.rfind('.')]
