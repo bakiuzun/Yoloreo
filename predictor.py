@@ -14,18 +14,17 @@ from ultralytics.utils import ops
 from ultralytics.engine.results import Results
 import geopandas as gpd
 from shapely.geometry import Polygon
-from georef_bbox import GeorefBbox
 from utils import save_image_with_bbox,get_georeferenced_pos
 
 
 class YoloreoPredictor(DetectionPredictor):
-    def __init__(self,cfg,csv_path,model,conf=0.50):
+    def __init__(self,csv_path,model,conf=0.50):
         """
         Predictor class to predict images stored in a csv file
         call method predict
         """
 
-        super().__init__(cfg=cfg)
+        super().__init__()
 
         self.device  = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.dataset = CliffDataset(path=csv_path)

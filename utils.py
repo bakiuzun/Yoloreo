@@ -19,7 +19,7 @@ import pandas as pd
 import sys
 from ultralytics.models.yolo.detect import DetectionPredictor
 import sys
-from ultralytics.models.yolo.detect import DetectionPredictor
+from osgeo import gdal
 
 
 BASE_LABEL_FILE_PATH = "/share/projects/cicero/objdet/dataset/CICERO_stereo/train_label/1_Varengeville_sur_Mer/"
@@ -82,9 +82,9 @@ def min_max_norm(img):
 def is_stereo(path):return path.split("/")[8].count("_") > 0
 
 
-def get_min_max_dataset(mode="train"):
+def get_min_max_dataset(path):
     # get the min and max of a dataset
-    df = pd.read_csv(f"csv/image_{mode}_split.csv")
+    df = pd.read_csv(path)
     le_max = -1
     le_min = sys.maxsize
 

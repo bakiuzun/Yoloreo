@@ -48,7 +48,7 @@ class YoloreoTrainer(BaseTrainer):
 
 
         self.train_dataset = CliffDataset(path=train_path)
-        self.validation_dataset = CliffDataset(mode=valid_path)
+        self.validation_dataset = CliffDataset(path=valid_path)
 
         self.validator = None # class Validator
 
@@ -320,7 +320,7 @@ class YoloreoTrainer(BaseTrainer):
     def init_validator(self):
         """Returns a DetectionValidator for YOLO model validation."""
         self.loss_names = 'box_loss', 'cls_loss', 'dfl_loss'
-        self.validator = MyDetectionValidator(dataloader=self.validation_loader,dataset=self.validation_dataset)
+        self.validator = YoloreoValidator(dataloader=self.validation_loader,dataset=self.validation_dataset)
 
     def validate(self):
 

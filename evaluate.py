@@ -28,7 +28,7 @@ for k, v in model.named_parameters():v.requires_grad = False
 
 model.to(device)
 
-validation_dataset = CliffDataset(mode="valid")
+validation_dataset = CliffDataset(path="csv/image_valid_split");
 
 validation_loader =  DataLoader(validation_dataset ,batch_size=32,shuffle=False)
 validator = YoloreoValidator(dataloader=validation_loader,dataset=validation_dataset)

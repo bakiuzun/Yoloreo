@@ -17,15 +17,8 @@ class CliffDataset(Dataset):
     """
     Cliff Dataset
     """
-    def __init__(self,mode=None,path=None):
-        if mode == None and path != None:
-            sample_file = path
-        elif mode != None and path == None:
-            sample_file = f"image_{mode}_split.csv"
-        else:
-            raise RuntimeError("path or mode should be given")
-        self.mode = mode
-        self.dataframe = pd.read_csv(sample_file)
+    def __init__(self,path):
+        self.dataframe = pd.read_csv(path)
 
     def __len__(self):
         return len(self.dataframe)
@@ -36,7 +29,7 @@ class CliffDataset(Dataset):
         row = self.dataframe.iloc[idx]
         patch1 = row['patch1']
         patch2 = row['patch2']
-        # if patch 2 is  nan -> mono images
+        # if patch 2 is  nan -> it's a mono image
         stereo = False if pd.isna(patch2) else True
 
         im_files_patch1 = patch1
