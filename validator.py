@@ -154,6 +154,11 @@ class YoloreoValidator(DetectionValidator):
             bbox = batch['bboxes'][idx]
             nl, npr = cls.shape[0], pred.shape[0]  # number of labels, predictions
             #shape = (batch['ori_shape'][si]) # 640,640
+
+            """
+                change the shape if it is not 640,640
+                if you have images of different shape you should change the dataset.py file  to include the ori_shape attribute
+            """
             shape = (640,640)
             correct_bboxes = torch.zeros(npr, self.niou, dtype=torch.bool, device=self.device)  # init
 
