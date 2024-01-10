@@ -6,7 +6,7 @@ import numpy as np
 
 # torch.Size([16, 576, 20, 20]) backbone out shape
 
-class MyYolo(BaseModel):
+class Yoloreo(BaseModel):
     def __init__(self, cfg='yolov8n.yaml', ch=3, nc=None, verbose=False,weights=None):  # model, input channels, number of classes
         """Initialize the YOLOv8 detection model with the given config and parameters."""
 

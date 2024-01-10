@@ -18,17 +18,17 @@ import shutil
 from pathlib import Path
 import copy
 from dataset import CliffDataset
-from validator import MyDetectionValidator
+from validator import YoloreoValidator
 from ultralytics.utils import (DEFAULT_CFG, LOGGER, RANK, TQDM, __version__, callbacks, clean_url, colorstr, emojis)
 from datetime import datetime
 from ultralytics.engine.trainer import BaseTrainer
 
 
-class MyDetectionTrainer(BaseTrainer):
-    def __init__(self,cfg,model,overrides=None):
+class YoloreoTrainer(BaseTrainer):
+    def __init__(self,cfg,train_path,valid_path,model,overrides=None):
         """
         Detection Trainer used to train,validate and save the metrics
-        call the method train
+        call the method train ti train and validate the model
         """
         self.args = get_cfg(cfg, overrides)
 
@@ -41,18 +41,14 @@ class MyDetectionTrainer(BaseTrainer):
         self.model.to(self.device)
         self.model.args = self.args
 
-        ## the path is determined by the mode
-        # the csv file that store all the images will be found like this
-        # f"csv/image_{mode}_split.csv"
-        # if mode = train, res: csv/image_train_split.csv
-        self.train_dataset = CliffDataset(mode="train")
-        self.validation_dataset = CliffDataset(mode="valid")
+
+        self.train_dataset = CliffDataset(path=train_path)
+        self.validation_dataset = CliffDataset(mode=valid_path)
 
         self.validator = None # class Validator
 
         self.metrics_head_1 = None
         self.metrics_head_2 = None
-        self.metrics_both = None  # when there is no stereo image
 
         ## criterion init
         self.criterion_head_1 = v8DetectionLoss(de_parallel(model))
@@ -63,7 +59,6 @@ class MyDetectionTrainer(BaseTrainer):
 
         self.loss_items_head_1 = None
         self.loss_items_head_2 = None
-        self.loss_items_both = None
 
         self.lf = None
         self.scheduler = None
@@ -74,11 +69,9 @@ class MyDetectionTrainer(BaseTrainer):
         # Epoch level metrics
         self.best_fitness_head1 = None
         self.best_fitness_head2 = None
-        self.best_fitness_both = None
 
         self.fitness_head1 = None
         self.fitness_head2 = None
-        self.fitness_both = None
 
         self.batch_size = self.args.batch
 
@@ -91,10 +84,9 @@ class MyDetectionTrainer(BaseTrainer):
 
     def init_save_dirs(self):
         """
-        store the weights, configuration file cfg.yaml
+        store the weights, configuration file -> cfg.yaml
         and the model architecture yolov8.yaml
-        you should include save_dir: your_path
-        to the cfg.yaml
+        you should include ->  save_dir: your_path in the cfg.yaml
         """
         self.save_dir = Path(self.args.save_dir)
         self.wdir = self.save_dir / 'weights_0'  # weights dir
@@ -114,9 +106,6 @@ class MyDetectionTrainer(BaseTrainer):
 
         self.last, self.best = self.wdir / 'last.pt', self.wdir / 'best.pt'  # checkpoint paths
 
-        self.best_left_head = self.wdir / 'best_left_head.pt'
-        self.best_right_head = self.wdir / 'best_right_head.pt'
-
         current_date = datetime.now().strftime("%d_%H-%M-%S")
         self.csv = self.wdir / "result.csv"
 
@@ -127,11 +116,9 @@ class MyDetectionTrainer(BaseTrainer):
         self._setup_train(world_size)
         self._do_train(world_size)
 
-
-
     def _setup_train(self, world_size):
         """
-        YOLO method
+        YOLO official method
         Builds dataloaders and optimizer on correct rank process.
         """
 
@@ -171,7 +158,6 @@ class MyDetectionTrainer(BaseTrainer):
         metric_keys = self.validator.metrics.keys + self.label_loss_items(prefix='val')
         self.metrics_head_1 = dict(zip(metric_keys, [0] * len(metric_keys)))
         self.metrics_head_2 = dict(zip(metric_keys, [0] * len(metric_keys)))
-        #self.metrics_both = dict(zip(metric_keys, [0] * len(metric_keys)))
 
         # Optimizer
         self.accumulate = max(round(self.args.nbs / self.batch_size), 1)  # accumulate loss before optimizing
@@ -245,7 +231,7 @@ class MyDetectionTrainer(BaseTrainer):
                     ## only used to print the cls for the current batch
                     batch['cls'] = torch.cat((patch_1_annotation['cls'], patch_2_annotation['cls']))
 
-                    # x_1 refer to the output from the first head,x_2 for the second head
+                    # x_1 refer to the output from the first head,x_2 from the second head
                     self.loss_head_1, self.loss_items_head_1 = self.criterion_head_1(features["x_1"],patch_1_annotation)
                     self.loss_head_2, self.loss_items_head_2 = self.criterion_head_2(features["x_2"],patch_2_annotation)
 
@@ -289,7 +275,6 @@ class MyDetectionTrainer(BaseTrainer):
 
             self.save_metrics(metrics={**self.label_loss_items(self.tloss), **self.metrics_head_1, **self.lr})
             self.save_metrics(metrics={**self.label_loss_items(self.tloss), **self.metrics_head_2, **self.lr})
-            #self.save_metrics(metrics={**self.label_loss_items(self.tloss), **self.metrics_both, **self.lr})
             self.save_model()
 
 
@@ -353,6 +338,7 @@ class MyDetectionTrainer(BaseTrainer):
             self.best_fitness_head2 = fitness_head_2
             #self.best_fitness_both  = fitness_both
         else:
+            ## you can change the way you store the best_fitness by updating each head separatly
             if fitness_head_1 > self.best_fitness_head1 and fitness_head_2 > self.best_fitness_head2:
                 self.best_fitness_head1 = fitness_head_1
                 self.best_fitness_head2 = fitness_head_2
@@ -360,7 +346,6 @@ class MyDetectionTrainer(BaseTrainer):
 
 
         return metrics_head_1,fitness_head_1,metrics_head_2,fitness_head_2 #, metrics_both
-
 
 
     def save_model(self):
@@ -373,7 +358,11 @@ class MyDetectionTrainer(BaseTrainer):
             'date': datetime.now().isoformat()
             }
 
-
-        # save only if the 2 head surpass their precedent best fitness
-        if self.best_fitness_head1 == self.fitness_head1 and self.best_fitness_head2  == self.fitness_head2: #or self.best_fitness_both == self.fitness_both:
+        """
+        save only if the 2 head surpass their precedent best fitness
+         you can change by saving 2 model (one where the head1 perform his best,second where the  head2 perform his best)
+         here one of the head may surpass his best fitness and the best of the second head however if the second head do not surpass
+         his actual best, the model won't be saved.
+        """
+        if self.best_fitness_head1 == self.fitness_head1 and self.best_fitness_head2  == self.fitness_head2:
             torch.save(ckpt, self.best)

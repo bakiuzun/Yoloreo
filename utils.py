@@ -15,14 +15,16 @@ import sys
 from ultralytics.models.yolo.detect import DetectionPredictor
 import sys
 from ultralytics.models.yolo.detect import DetectionPredictor
-from osgeo import gdal
 
 
 BASE_LABEL_FILE_PATH = "/share/projects/cicero/objdet/dataset/CICERO_stereo/train_label/1_Varengeville_sur_Mer/"
+BASE_IMG_FILE_PATH = "/share/projects/cicero/objdet/dataset/CICERO_stereo/images/1_Varengeville_sur_Mer/"
 
 
 def image_to_label_path(img_file,patch1=True):
-
+    """
+    get the label file from the image path
+    """
     img_file = img_file.split("/")
     patch_name = "patches_cm1_txt" if patch1 else "patches_cm2_txt"
 
@@ -72,8 +74,7 @@ def min_max_norm(img):
     return (img - minn) / (maxx - minn)
 
 
-def is_stereo(path):
-    return path.split("/")[8].count("_") > 0
+def is_stereo(path):return path.split("/")[8].count("_") > 0
 
 
 def get_min_max_dataset(mode="train"):
@@ -108,27 +109,6 @@ def get_min_max_dataset(mode="train"):
 
     return le_max,le_min
 
-
-
-def pred_one_image(model,image_path,mode="train",output_file=None):
-    """
-    if output_file == None:
-       output_file = "pred_res.txt"
-
-    predictor = DetectionPredictor()
-
-    image = load_image(image_path)
-    image = image[:,:,:3]
-    image_max = np.max(image)
-    image_min = np.min(image)
-    image = ((image - image_min) / (image_max - image_min))
-
-    image = torch.tensor(image).float().permute(2, 0, 1)
-    image = image.unsqueeze(0)
-
-    x = predictor(source=image ,model=model)
-    x[0].save_txt(output_file,True)
-    """
 
 
 def save_image_using_label(image_path,label_path,save_path):
@@ -194,9 +174,19 @@ def get_mean_std_dataset(csv_path):
 
 
 def get_georeferenced_pos(path,x,y):
-
+    """
+    method to get the georeferenced position from pixels position
+    this method is used after prediction when we found the bbox to convert
+    the bbox position from pixel to geo
+    we also return some useful information used in the shapefile (optional)
+    element returned:
+        patch_id: col+"_"+ligne
+        base_img_id (the patch come from this image): path_split[9]
+        the position of x in the base_img (calculated): x_geo_pix
+        the position of y in the base_img (calculated): y_geo_pix
+    """
     def calculate(img_mere):
-
+        ## the patch path contain information about his position in the base_img such as the column and row
         ligne = path_split[-1].split("_")[-1]
         col = path_split[-1].split("_")[-2]
 
@@ -230,7 +220,7 @@ def get_georeferenced_pos(path,x,y):
 
 def save_image_with_bbox(img,save_path,bbox,second_head_bbox=None):
     """
-    If second head bboxe is not Not, the result image will contain bounding box from 2 sources (bbox,second_head_bbox)
+    If second head bbox is not None, the result image will contain bounding box from 2 sources (bbox,second_head_bbox)
     """
     for box in bbox.xyxy:
         cv2.rectangle(img,(int(box[0]),int(box[1])),(int(box[2]),int(box[3])),(0, 255, 0), 2)
