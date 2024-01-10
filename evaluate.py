@@ -1,8 +1,13 @@
+"""
+author Uzun Baki
+-- u.officialdeveloper@gmail.com
+"""
+
 import torch
-from validator import MyDetectionValidator
+from validator import YoloreoValidator
 from dataset import CliffDataset
 from torch.utils.data import DataLoader
-from model import MyYolo
+from model import Yoloreo
 
 BASE_PATH = "/share/projects/cicero/checkpoints_baki/"
 
@@ -14,7 +19,7 @@ model_config = {
 device  = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 ## model def
-model = MyYolo(cfg=model_config["arch"])
+model = Yoloreo(cfg=model_config["arch"])
 model.load_pretrained_weights(model_config["checkpoint"])
 model.nc = 1
 model.names = {0:'erosion'}
@@ -26,6 +31,6 @@ model.to(device)
 validation_dataset = CliffDataset(mode="valid")
 
 validation_loader =  DataLoader(validation_dataset ,batch_size=32,shuffle=False)
-validator = MyDetectionValidator(dataloader=validation_loader,dataset=validation_dataset)
+validator = YoloreoValidator(dataloader=validation_loader,dataset=validation_dataset)
 
 validator.evaluate(model,device,conf=0.25)

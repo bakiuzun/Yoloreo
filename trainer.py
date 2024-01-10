@@ -1,3 +1,8 @@
+"""
+author Uzun Baki
+-- u.officialdeveloper@gmail.com
+"""
+
 from ultralytics.cfg import get_cfg
 import torch
 from torch.cuda import amp

@@ -1,3 +1,8 @@
+"""
+author Uzun Baki
+-- u.officialdeveloper@gmail.com
+"""
+
 import os
 import csv
 from utils import image_to_label_path

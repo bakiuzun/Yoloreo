@@ -1,3 +1,8 @@
+"""
+author Uzun Baki
+-- u.officialdeveloper@gmail.com
+"""
+
 import torch
 from torch.utils.data import Dataset
 from torchvision.transforms import ToTensor

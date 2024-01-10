@@ -1,3 +1,8 @@
+"""
+author Uzun Baki
+-- u.officialdeveloper@gmail.com
+"""
+
 import torch
 from ultralytics.nn.tasks import *
 from utils import parse_my_detection_model
@@ -10,6 +15,9 @@ class Yoloreo(BaseModel):
     def __init__(self, cfg='yolov8n.yaml', ch=3, nc=None, verbose=False,weights=None):  # model, input channels, number of classes
         """Initialize the YOLOv8 detection model with the given config and parameters."""
 
+        """
+        YOLO init --> check yolo code
+        """
         super().__init__()
 
         self.yaml = cfg if isinstance(cfg, dict) else yaml_model_load(cfg)  # cfg dict
@@ -47,21 +55,17 @@ class Yoloreo(BaseModel):
             self.info()
             LOGGER.info('')
 
-
-        if weights != None:
-            self.load_pretrained_weights(weights)
-            self.enable_all_gradients()
-
+        ## OUR modification
 
         # for cross attention
         self.linear_query = torch.nn.Conv1d(576, 576, 1)
         self.linear_key = torch.nn.Conv1d(576, 576, 1)
         self.linear_value = torch.nn.Conv1d(576, 576, 1)
 
+        ## check yolov8.yaml for the indexation
         self.backbone = self.model[:10]
         self.head_1 = self.model[10:23]
         self.head_2 = self.model[23:]
-
 
 
     def enable_all_gradients(self):
@@ -79,12 +83,14 @@ class Yoloreo(BaseModel):
 
         y_1 = []
         y_2 = []
+
+        # x shape --> (batch_size,2,channel,height,widht)
+        # check dataset.py
         x_1 = x[:,0]
         x_2 = x[:,1]
 
         x_1,y_1 = self._forward_backbone(x_1,y_1)
         x_2,y_2 = self._forward_backbone(x_2,y_2)
-
 
         attended_feature_2 = self._cross_attention(x_1,x_2)
         attended_feature_1 = self._cross_attention(x_2,x_1)
@@ -92,14 +98,13 @@ class Yoloreo(BaseModel):
         x_1,y_1 = self._forward_head(attended_feature_2,y_1,head1=True)
         x_2,y_2 = self._forward_head(attended_feature_1,y_2,head1=False)
 
-
         data = {'x_1':x_1,'x_2':x_2,"mono_res":mono_res}
-
 
         return data
 
 
     def _forward_backbone(self,x,y):
+        # YOLO implementation
         for m in self.backbone:
             if m.f != -1:  # if not from previous layer
                 x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
@@ -109,7 +114,11 @@ class Yoloreo(BaseModel):
         return x,y
 
     def _forward_head(self,x,y,head1=True):
+        """
+        forward process
+        """
         if head1:
+            # STANDART
             for m in self.head_1:
                 if m.f != -1:  # if not from previous layer
                     x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
@@ -144,12 +153,13 @@ class Yoloreo(BaseModel):
 
 
 
-    """
-    For each element in feature_1, we check how it interacts with each element in feature_2.
-    This interaction is determined by the attention scores,
-    The attention scores quantify the relationship or compatibility between each element in feature_1 and each element in feature_2
-    """
+
     def _cross_attention(self,feature_1,feature_2):
+        """
+        For each element in feature_1, we check how it interacts with each element in feature_2.
+        This interaction is determined by the attention scores,
+        The attention scores quantify the relationship or compatibility between each element in feature_1 and each element in feature_2
+        """
 
         original_shape = feature_1.shape
 
@@ -176,6 +186,8 @@ class Yoloreo(BaseModel):
         head_2_dict = {}
         for name_1, param_1 in self.state_dict().items():
             name_1_number = int(name_1.split('.')[1])
+
+            ## check yolov8.yaml to understand the numbers
             if name_1_number == 25:break
             if (name_1_number >=12 ):
                 name_2_number = name_1_number + 13

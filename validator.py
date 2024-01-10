@@ -1,3 +1,8 @@
+"""
+author Uzun Baki
+-- u.officialdeveloper@gmail.com
+"""
+
 from ultralytics.models.yolo.detect.val import DetectionValidator
 
 import torch

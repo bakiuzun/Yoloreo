@@ -1,3 +1,8 @@
+"""
+author Uzun Baki
+-- u.officialdeveloper@gmail.com
+"""
+
 import torch
 from dataset import CliffDataset
 from torch.utils.data import DataLoader

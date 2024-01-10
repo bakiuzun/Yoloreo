@@ -1,23 +1,27 @@
-""""
-under development
-Uzun Baki
 """
+author Uzun Baki
+-- u.officialdeveloper@gmail.com
+"""
+
 from model import *
 from torch.utils.data import DataLoader
 from dataset import CliffDataset
-from trainer import MyDetectionTrainer
+from trainer import YoloreoTrainer
 
 
-model_config = {
+config = {
     "arch": "yolov8.yaml",
-    "checkpoint":"imported/yolov8m.pt"
+    "checkpoint":"imported/yolov8m.pt",
+    "train_path":"csv/image_train_split.csv",
+    "valid_path":"csv/image_valid_split.csv",
 }
 
+
 ## model def
-model = MyYolo(cfg=model_config["arch"])
-model.load_pretrained_weights(model_config["checkpoint"])
+model = Yoloreo(cfg=config["arch"])
+model.load_pretrained_weights(config["checkpoint"])
 model.nc = 1
 model.names = {0:"erosion"}
 
-trainer = MyDetectionTrainer(cfg="cfg.yaml",model=model)
+trainer = YoloreoTrainer(cfg="cfg.yaml",train_path=config["train_path"],valid_path=config["valid_path"], model=model)
 trainer.train()
