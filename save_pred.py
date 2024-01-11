@@ -30,7 +30,7 @@ for k, v in model.named_parameters():v.requires_grad = False
 model.to(device)
 
 
-detector = YoloreoPredictor(csv_path="pred_split.csv",model=model)
+detector = YoloreoPredictor(csv_path="csv/image_valid_split.csv",model=model)
 detector.predict(save_res=False,create_shape_file=True)
 
 """
