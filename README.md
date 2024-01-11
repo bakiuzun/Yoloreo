@@ -100,3 +100,17 @@ even if you have only 1 image to predict you should create a csv file and put th
 ## <div align="center"> Result </div>
 We compared the result of our Yoloreo model with the Baseline Model (yolov8) where we don't have the notion of stereo so all images (stereo and mono) are seen as mono images.
 After 5 benchmark each constitued of 4 runs (total of 20 runs with different settings) the Yoloreo model surpass the baseline model in each benchmark.
+
+One of the benchmark result
+![Bench1](https://github.com/bakiuzun/Yoloreo/blob/main/images/bench1.png)
+
+Some important note:
+during the training process the validation has been done only on images that contain at least 1 annotation
+After the training we evaluate the model over all validation images. As the best model is saved thanks the result obtained during validation you can see that even our Yoloreo model have not good result specially for the recall metrics. However we have saved a model that was validated over all images and showed a big improvement.
+<code>
+Precision      Recall    mAP(50)
+HEAD head1
+0.514          0.362      0.435
+HEAD head2
+0.488       0.39      0.423
+</code>
