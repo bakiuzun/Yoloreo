@@ -14,7 +14,7 @@ BASE_PATH = "/share/projects/cicero/checkpoints_baki/"
 
 model_config = {
     "arch": "yolov8.yaml",
-    "checkpoint":BASE_PATH+"weights_0/best.pt"
+    "checkpoint":BASE_PATH+"weights_1/best.pt"
 }
 
 device  = torch.device("cuda" if torch.cuda.is_available() else "cpu")

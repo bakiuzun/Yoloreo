@@ -13,7 +13,7 @@ BASE_PATH = "/share/projects/cicero/checkpoints_baki/"
 
 model_config = {
     "arch": "yolov8.yaml",
-    "checkpoint":BASE_PATH+"weights_0/best.pt"
+    "checkpoint":BASE_PATH+"weights_1/best.pt"
 }
 
 device  = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -28,7 +28,7 @@ for k, v in model.named_parameters():v.requires_grad = False
 
 model.to(device)
 
-validation_dataset = CliffDataset(path="csv/image_valid_split");
+validation_dataset = CliffDataset(path="csv/image_valid_split.csv");
 
 validation_loader =  DataLoader(validation_dataset ,batch_size=32,shuffle=False)
 validator = YoloreoValidator(dataloader=validation_loader,dataset=validation_dataset)
