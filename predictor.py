@@ -10,9 +10,9 @@ import torch
 
 from ultralytics.utils import LOGGER, TQDM
 from ultralytics.utils import ops
+import geopandas as gpd
 
 from ultralytics.engine.results import Results
-import geopandas as gpd
 from shapely.geometry import Polygon
 from utils import save_image_with_bbox,get_georeferenced_pos
 
@@ -66,7 +66,7 @@ class YoloreoPredictor(DetectionPredictor):
             self.result_head_2 = self.postprocess(out["x_2"], batch["img"][:,1], batch["img"][:,1],head="head2")
 
             self.handle_result(save_res,create_shape_file,idx)
-
+            break
         if create_shape_file:self.create_shape_file()
 
 
@@ -75,32 +75,36 @@ class YoloreoPredictor(DetectionPredictor):
         post process operation will return a list of Result class: check yolo documentation
         here depending on the task (save_img_res,create_shape_file) we call a method with the result information
         """
+        path = []
+        # len result head 1 = len result head 2
         for i in range(len(self.result_head_1)):
             res_head_1 = self.result_head_1[i]
             res_head_2 = self.result_head_2[i]
             ## STEREO
+            patch2_is_patch1 = False
             if res_head_1.path != res_head_2.path:
                 if save_img_res:
-                    save_image_with_bbox(res_head_1.orig_img,f"head1_{i+(self.batch_size+idx)}.png",res_head_1.boxes)
-                    save_image_with_bbox(res_head_2.orig_img,f"head2_{i+(self.batch_size*idx)}.png",res_head_2.boxes)
+                    save_image_with_bbox(res_head_1.orig_img,f"head1_{i+(self.batch_size*idx)}.PNG",res_head_1.boxes)
+                    save_image_with_bbox(res_head_2.orig_img,f"head2_{i+(self.batch_size*idx)}.PNG",res_head_2.boxes)
             else:
                 ## MONO MERGE RESULT
                 ## THE IMAGE IS THE SAME
+                patch2_is_patch1 = True
                 if save_img_res:
-                    save_image_with_bbox(res_head_1.orig_img,f"head1_head2_{i+(self.batch_size*idx)}.png",res_head_1.boxes,res_head_2.boxes)
+                    save_image_with_bbox(res_head_1.orig_img,f"head1_head2_{i+(self.batch_size*idx)}.PNG",res_head_1.boxes,res_head_2.boxes)
 
             if create_shape_file:
-                self.fill_georef_poses(res_head_1.path,res_head_1.boxes,1) # 1 = head1
-                self.fill_georef_poses(res_head_2.path,res_head_2.boxes,2) # 2 = head2
+                self.fill_georef_poses(res_head_1.path,res_head_1.boxes,1,True) # 1 = head1
+                self.fill_georef_poses(res_head_2.path,res_head_2.boxes,2,patch2_is_patch1) # 2 = head2
 
-    def fill_georef_poses(self,path,bbox,head_num):
+    def fill_georef_poses(self,path,bbox,head_num,patch1):
         """
         transform the pixel position to georeferenced position
         store some useful information for the shapefile (optional)
         """
         for pos in bbox.xyxy.cpu().numpy():
-            x,y,base_img_id,patch_id = get_georeferenced_pos(path,int(pos[0]),int(pos[1]))
-            x2,y2,_,_ = get_georeferenced_pos(path,int(pos[2]),int(pos[3]))
+            x,y,base_img_id,patch_id = get_georeferenced_pos(path,float(pos[0]),float(pos[1]),patch1)
+            x2,y2,_,_ = get_georeferenced_pos(path,float(pos[2]),float(pos[3]),patch1)
 
             ## optional
             self.attr_heads.append(head_num)
@@ -136,6 +140,7 @@ class YoloreoPredictor(DetectionPredictor):
             "bbox_y1": bbox_y1,
             "bbox_x2": bbox_x2,
             "bbox_y2": bbox_y2,
+            "conf":self.args.conf
             }
             gdf = gpd.GeoDataFrame(data, crs='EPSG:4326')  # Change EPSG code as needed
 

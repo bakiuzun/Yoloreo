@@ -24,30 +24,25 @@ class Yoloreo(BaseModel):
 
         # Define model
         ch = self.yaml['ch'] = self.yaml.get('ch', ch)  # input channels
-        if nc and nc != self.yaml['nc']:
-            LOGGER.info(f"Overriding model.yaml nc={self.yaml['nc']} with nc={nc}")
-            self.yaml['nc'] = nc  # override YAML value
+        if nc and nc != self.yaml['nc']:self.yaml['nc'] = nc  # override YAML value
         self.model, self.save = parse_my_detection_model(deepcopy(self.yaml), ch=ch, verbose=verbose)  # model, savelist
         self.names = {i: f'{i}' for i in range(self.yaml['nc'])}  # default names dict
         self.inplace = self.yaml.get('inplace', True)
 
-        # Build strides
+
         first_head = self.model[22]  # Detect()
         second_head = self.model[-1]  # Detect()
-        if isinstance(first_head, (Detect, Segment, Pose)) and isinstance(second_head, (Detect, Segment, Pose)):
-            s = 256  # 2x min stride
-            first_head.inplace = self.inplace
-            second_head.inplace = self.inplace
+        s = 256  # 2x min stride
+        first_head.inplace = self.inplace
+        second_head.inplace = self.inplace
 
-            # strides by default for objection detection with YOLOV8
-            first_head.stride = torch.tensor([ 8., 16., 32.])
-            second_head.stride = torch.tensor([ 8., 16., 32.])
-            self.stride = first_head.stride
+        # strides by default for objection detection with YOLOV8
+        first_head.stride = torch.tensor([ 8., 16., 32.])
+        second_head.stride = torch.tensor([ 8., 16., 32.])
+        self.stride = first_head.stride
 
-            first_head.bias_init()  # only run once
-            second_head.bias_init()  # only run once
-        else:
-            self.stride = torch.Tensor([32])  # default stride for i.e. RTDETR
+        first_head.bias_init()  # only run once
+        second_head.bias_init()  # only run once
 
         # Init weights, biases
         initialize_weights(self)
@@ -58,11 +53,24 @@ class Yoloreo(BaseModel):
         ## OUR modification
 
         # for cross attention
-        self.linear_query = torch.nn.Conv1d(576, 576, 1)
-        self.linear_key = torch.nn.Conv1d(576, 576, 1)
-        self.linear_value = torch.nn.Conv1d(576, 576, 1)
+        """
+        self.linear_query_p3 = torch.nn.Conv1d(192, 192, 1)
+        self.linear_key_p3 = torch.nn.Conv1d(192, 192, 1)
+        self.linear_value_p3 = torch.nn.Conv1d(192, 192, 1)
+        self.p3 = [self.linear_query_p3,self.linear_key_p3,self.linear_value_p3]
+
+        self.linear_query_p4 = torch.nn.Conv1d(384, 384, 1)
+        self.linear_key_p4 = torch.nn.Conv1d(384, 384, 1)
+        self.linear_value_p4 = torch.nn.Conv1d(384, 384, 1)
+        self.p4 = [self.linear_query_p4,self.linear_key_p4,self.linear_value_p4]
+        """
+        self.linear_query_p5 = torch.nn.Conv1d(576, 576, 1)
+        self.linear_key_p5 = torch.nn.Conv1d(576, 576, 1)
+        self.linear_value_p5 = torch.nn.Conv1d(576, 576, 1)
+        self.p5 = [self.linear_query_p5,self.linear_key_p5,self.linear_value_p5]
 
         ## check yolov8.yaml for the indexation
+        self.index = [5,7,10]
         self.backbone = self.model[:10]
         self.head_1 = self.model[10:23]
         self.head_2 = self.model[23:]
@@ -89,7 +97,7 @@ class Yoloreo(BaseModel):
         x_1 = x[:,0]
         x_2 = x[:,1]
 
-        x_1,y_1 = self._forward_backbone(x_1,y_1)
+        x_1,y_1 = self._forward_backbone(x_1,y_1,)
         x_2,y_2 = self._forward_backbone(x_2,y_2)
 
         attended_feature_2 = self._cross_attention(x_1,x_2)
@@ -166,9 +174,9 @@ class Yoloreo(BaseModel):
         reshaped_feature_map_1 = feature_1.view(feature_1.shape[0], feature_1.shape[1], -1)
         reshaped_feature_map_2 = feature_2.view(feature_2.shape[0], feature_2.shape[1], -1)
 
-        query = self.linear_query(reshaped_feature_map_1)
-        key = self.linear_key(reshaped_feature_map_2)
-        value = self.linear_value(reshaped_feature_map_2)
+        query = self.linear_query_p5(reshaped_feature_map_1)
+        key = self.linear_key_p5(reshaped_feature_map_2)
+        value = self.linear_value_p5(reshaped_feature_map_2)
 
         scores = torch.matmul(query, key.transpose(-2, -1))
         attention_weights = torch.nn.functional.softmax(scores,dim=-1)
@@ -204,3 +212,4 @@ class Yoloreo(BaseModel):
         self.load_state_dict(csd, strict=False)  # load
 
         LOGGER.info(f'Transferred {len(csd)}/{len(self.model.state_dict())} items from pretrained weights')
+

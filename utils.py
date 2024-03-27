@@ -14,7 +14,6 @@ from ultralytics.nn.modules import (AIFI, C1, C2, C3, C3TR, SPP, SPPF, Bottlenec
 from ultralytics.utils import LOGGER, colorstr
 from ultralytics.utils.torch_utils import (make_divisible)
 import numpy as np
-from PIL import Image
 import pandas as pd
 import sys
 from ultralytics.models.yolo.detect import DetectionPredictor
@@ -25,6 +24,9 @@ from osgeo import gdal
 BASE_LABEL_FILE_PATH = "/share/projects/cicero/objdet/dataset/CICERO_stereo/train_label/1_Varengeville_sur_Mer/"
 BASE_IMG_FILE_PATH = "/share/projects/cicero/objdet/dataset/CICERO_stereo/images/1_Varengeville_sur_Mer/"
 
+BASE_IMG_FILE_PATH = '/share/projects/cicero/objdet/dataset/CICERO_stereo/images/3_Zakynthos/'
+BASE_LABEL_FILE_PATH = "/share/projects/cicero/objdet/dataset/CICERO_stereo/train_label/3_Zakynthos/"
+
 
 def image_to_label_path(img_file,patch1=True):
     """
@@ -33,8 +35,8 @@ def image_to_label_path(img_file,patch1=True):
     img_file = img_file.split("/")
     patch_name = "patches_cm1_txt" if patch1 else "patches_cm2_txt"
 
-    # tiles_201802171130571_13440_09920.png -> tiles_201802171130571_13440_09920.txt
-    img_file[-1] = img_file[-1].replace('.png', '.txt')
+    # tiles_201802171130571_13440_09920.PNG, -> tiles_201802171130571_13440_09920.txt
+    img_file[-1] = img_file[-1].replace('.PNG', '.txt')
 
     label_path = BASE_LABEL_FILE_PATH + img_file[9] +  "/patches_cm_indiv_stereo/" + patch_name + "/" + img_file[-1]
 
@@ -178,7 +180,7 @@ def get_mean_std_dataset(csv_path):
 
 
 
-def get_georeferenced_pos(path,x,y):
+def get_georeferenced_pos(path,x,y,patch1_stereo=False):
     """
     method to get the georeferenced position from pixels position
     this method is used after prediction when we found the bbox to convert
@@ -190,6 +192,7 @@ def get_georeferenced_pos(path,x,y):
         the position of x in the base_img (calculated): x_geo_pix
         the position of y in the base_img (calculated): y_geo_pix
     """
+
     def calculate(img_mere):
         ## the patch path contain information about his position in the base_img such as the column and row
         ligne = path_split[-1].split("_")[-1]
@@ -218,7 +221,10 @@ def get_georeferenced_pos(path,x,y):
     ident = path_split[9]
 
     #ident represent the base image of the patch
-    ident = BASE_IMG_FILE_PATH + ident + "/pair/" + ident + ".PNG"
+    extension = ".PNG"
+    if ident.count("_") > 0 and patch1_stereo:
+        extension = "_res.PNG"
+    ident = BASE_IMG_FILE_PATH + ident + "/pair/" + ident + extension
 
     return calculate(ident)
 

@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 from utils import (load_image,image_to_label_path,get_label_info)
 import copy
+import cv2
 
 
 
@@ -36,12 +37,13 @@ class CliffDataset(Dataset):
         im_files_patch2 = patch1 if stereo == False else patch2
 
         image_patch_1 = load_image(patch1)[:,:,:3]
+        #image_patch_1 = load_image(patch1)[:,:,:3]
         image_patch_1 = image_patch_1.astype("float")
-
-
+        image_patch_1 = cv2.resize(image_patch_1, (640, 640))
         ## min max norm
         minn = np.min(image_patch_1)
         maxx = np.max(image_patch_1)
+
         image_patch_1 = ((image_patch_1 - minn) / (maxx - minn)) * 255
         image_patch_1 = ToTensor()(image_patch_1)
 
@@ -49,6 +51,7 @@ class CliffDataset(Dataset):
             ## same process as the first image patch 1
             image_patch_2 = load_image(patch2)[:,:,:3]
             image_patch_2 = image_patch_2.astype("float")
+            image_patch_2 = cv2.resize(image_patch_2, (640, 640))
 
             minn = np.min(image_patch_2)
             maxx = np.max(image_patch_2)

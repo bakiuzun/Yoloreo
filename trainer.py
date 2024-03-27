@@ -21,8 +21,10 @@ import warnings
 from copy import deepcopy
 import shutil
 from pathlib import Path
+import time
 import copy
 from dataset import CliffDataset
+import wandb as wb
 from validator import YoloreoValidator
 from ultralytics.utils import (DEFAULT_CFG, LOGGER, RANK, TQDM, __version__, callbacks, clean_url, colorstr, emojis)
 from datetime import datetime
@@ -54,6 +56,7 @@ class YoloreoTrainer(BaseTrainer):
 
         self.metrics_head_1 = None
         self.metrics_head_2 = None
+        self.metrics = None
 
         ## criterion init
         self.criterion_head_1 = v8DetectionLoss(de_parallel(model))
@@ -74,15 +77,25 @@ class YoloreoTrainer(BaseTrainer):
         # Epoch level metrics
         self.best_fitness_head1 = None
         self.best_fitness_head2 = None
+        self.best_fitness = None
 
         self.fitness_head1 = None
         self.fitness_head2 = None
+        self.fitness = None
 
         self.batch_size = self.args.batch
 
         self.tloss = None
         self.tloss_head_2 = None
         self.tloss_head_1 = None
+
+
+        self.plots = {}
+        self.callbacks = callbacks.get_default_callbacks()
+        callbacks.add_integration_callbacks(self)
+
+        wb.run or wb.init(project=self.args.project or 'TEST', name=self.args.name, config=vars(self.args))
+        wb.config.batch_size = self.batch_size
 
         self.loss_names = ['Loss']
 
@@ -103,6 +116,7 @@ class YoloreoTrainer(BaseTrainer):
 
         self.wdir.mkdir()
 
+        print("SELF WDIR = ",self.wdir)
         cfg_source = Path("cfg.yaml")
         shutil.copy(cfg_source, self.wdir / "cfg.yaml") # change cfg.yaml to your conf name
 
@@ -147,7 +161,9 @@ class YoloreoTrainer(BaseTrainer):
 
         # Check AMP
         self.amp = torch.tensor(self.args.amp).to(self.device)  # True or False
+        callbacks_backup = callbacks.default_callbacks.copy()  # backup callbacks as check_amp() resets them
         self.amp = torch.tensor(check_amp(self.model), device=self.device)
+        callbacks.default_callbacks = callbacks_backup  # restore callbacks
         self.amp = bool(self.amp)  # as boolean
         self.scaler = amp.GradScaler(enabled=self.amp)
 
@@ -186,6 +202,7 @@ class YoloreoTrainer(BaseTrainer):
         self.stopper, self.stop = EarlyStopping(patience=self.args.patience), False
         #self.resume_training(ckpt)
         self.scheduler.last_epoch = self.start_epoch - 1  # do not move
+        self.run_callbacks('on_pretrain_routine_end')
 
 
     def _do_train(self,world_size):
@@ -195,7 +212,7 @@ class YoloreoTrainer(BaseTrainer):
         nb = len(self.train_loader)  # number of batches
         nw = max(round(self.args.warmup_epochs * nb), 100) if self.args.warmup_epochs > 0 else -1  # warmup iterations
         last_opt_step = -1
-
+        train_start = time.time()
         epoch = self.epochs  # predefine for resume fully trained model edge cases
         for epoch in range(self.start_epoch, self.epochs):
             self.epoch = epoch
@@ -274,21 +291,33 @@ class YoloreoTrainer(BaseTrainer):
                 warnings.simplefilter('ignore')  # suppress 'Detected lr_scheduler.step() before optimizer.step()'
                 self.scheduler.step()
 
+            self.run_callbacks('on_train_epoch_end')
             # validation step
+
+            final_epoch = (epoch + 1 == self.epochs) or self.stopper.possible_stop
             self.metrics_head_1,self.fitness_head1, self.metrics_head_2,self.fitness_head2 = self.validate()
-
-
+            self.metrics = self.mean_metrics()
             self.save_metrics(metrics={**self.label_loss_items(self.tloss), **self.metrics_head_1, **self.lr})
             self.save_metrics(metrics={**self.label_loss_items(self.tloss), **self.metrics_head_2, **self.lr})
-            self.save_model()
+            self.stop = self.stopper(epoch + 1, self.fitness)
 
+            self.save_model()
+            self.run_callbacks('on_fit_epoch_end')
+
+            if self.stop:break
 
             torch.cuda.empty_cache()  # clears GPU vRAM at end of epoch, can help with out of memory errors
 
         torch.cuda.empty_cache()
+        wb.log({"train_time":time.time() - train_start,"nb_epoch":final_epoch})
+        #self.run_callbacks('on_train_end')
 
 
-
+    def mean_metrics(self):
+        metrics = {}
+        for i in self.metrics_head_1:
+            metrics[i] = (self.metrics_head_1[i] + self.metrics_head_2[i]) / 2
+        return metrics
     def optimizer_step(self):
         """
         YOLO method
@@ -328,27 +357,27 @@ class YoloreoTrainer(BaseTrainer):
 
         fitness_head_1 = metrics_head_1.pop('fitness')
         fitness_head_2 = metrics_head_2.pop('fitness')
-        #fitness_both = metrics_both.pop('fitness')
+        self.fitness = (fitness_head_1 + fitness_head_2) / 2
 
-        print("FITNESS 1",fitness_head_1)
-        print("FITNESS 2",fitness_head_2)
-        #print("FITNESS BOTH ",fitness_both)
-        print("BEST FITNESS 1 ",self.best_fitness_head1)
-        print("BEST FITNESS 2 ",self.best_fitness_head2)
-        #print("BEST FITNESS BOTH",self.best_fitness_both)
 
         # for the first epoch fitness will be None at start
         if self.best_fitness_head1 == None:
             self.best_fitness_head1 = fitness_head_1
             self.best_fitness_head2 = fitness_head_2
-            #self.best_fitness_both  = fitness_both
+            self.best_fitness = self.fitness
         else:
+            if self.fitness > self.best_fitness:
+                self.best_fitness = self.fitness
+                self.best_fitness_head1 = fitness_head_1
+                self.best_fitness_head2 = fitness_head_2
+
+            """
             ## you can change the way you store the best_fitness by updating each head separatly
             if fitness_head_1 > self.best_fitness_head1 and fitness_head_2 > self.best_fitness_head2:
                 self.best_fitness_head1 = fitness_head_1
                 self.best_fitness_head2 = fitness_head_2
                 #self.best_fitness_both  = fitness_both
-
+            """
 
         return metrics_head_1,fitness_head_1,metrics_head_2,fitness_head_2 #, metrics_both
 
@@ -369,5 +398,8 @@ class YoloreoTrainer(BaseTrainer):
          here one of the head may surpass his best fitness and the best of the second head however if the second head do not surpass
          his actual best, the model won't be saved.
         """
-        if self.best_fitness_head1 == self.fitness_head1 and self.best_fitness_head2  == self.fitness_head2:
+        if self.best_fitness == self.fitness:
             torch.save(ckpt, self.best)
+
+        #if self.best_fitness_head1 == self.fitness_head1 and self.best_fitness_head2  == self.fitness_head2:
+        #    torch.save(ckpt, self.best)

@@ -7,7 +7,6 @@ from ultralytics.models.yolo.detect.val import DetectionValidator
 
 import torch
 from ultralytics.utils.ops import Profile
-import json
 import time
 from pathlib import Path
 
@@ -39,7 +38,6 @@ class YoloreoValidator(DetectionValidator):
 
         self.metrics_head_1 =  DetMetrics(save_dir=self.save_dir, on_plot=self.on_plot)
         self.metrics_head_2 =  DetMetrics(save_dir=self.save_dir, on_plot=self.on_plot)
-        self.metrics_both =  DetMetrics(save_dir=self.save_dir, on_plot=self.on_plot)
 
         self.dataset = dataset
 
@@ -57,7 +55,6 @@ class YoloreoValidator(DetectionValidator):
 
         self.loss_head_1 = torch.zeros_like(trainer.loss_items_head_1, device=trainer.device)
         self.loss_head_2 = torch.zeros_like(trainer.loss_items_head_2, device=trainer.device)
-        self.loss_both = torch.zeros_like(trainer.loss_items_head_2, device=trainer.device)
 
         model.eval()
 
@@ -77,7 +74,7 @@ class YoloreoValidator(DetectionValidator):
             features = model(batch["img"])
             preds_head_1 = features["x_1"]
             preds_head_2 = features["x_2"]
-            preds_both = features["mono_res"]
+
 
             self.loss_head_1 += trainer.criterion_head_1(preds_head_1,patch_1_annotation)[1]
             self.loss_head_2 += trainer.criterion_head_2(preds_head_2,patch_2_annotation)[1]
@@ -102,7 +99,6 @@ class YoloreoValidator(DetectionValidator):
 
         results_head_1 = {**stats_head_1, **trainer.label_loss_items(self.loss_head_1.cpu() / len(self.dataloader), prefix='val')}
         results_head_2 = {**stats_head_2, **trainer.label_loss_items(self.loss_head_2.cpu() / len(self.dataloader), prefix='val')}
-
         return [{k: round(float(v), 5) for k, v in results_head_1.items()},{k: round(float(v), 5) for k, v in results_head_2.items()} ]
 
 
@@ -173,10 +169,11 @@ class YoloreoValidator(DetectionValidator):
                 if nl:
                     if head_name == "head1":
                         self.stats_head_1.append((correct_bboxes, *torch.zeros((2, 0), device=self.device), cls.squeeze(-1)))
+                        if self.args.plots:self.confusion_matrix.process_batch(detections=None, labels=cls.squeeze(-1))
 
                     elif head_name == "head2":
                         self.stats_head_2.append((correct_bboxes, *torch.zeros((2, 0), device=self.device), cls.squeeze(-1)))
-
+                        if self.args.plots:self.confusion_matrix.process_batch(detections=None, labels=cls.squeeze(-1))
                 continue
 
             # Predictions
@@ -196,6 +193,7 @@ class YoloreoValidator(DetectionValidator):
 
                 labelsn = torch.cat((cls, tbox), 1)  # native-space labels
                 correct_bboxes = self._process_batch(predn, labelsn)
+                if self.args.plots:self.confusion_matrix.process_batch(predn, labelsn)
 
 
             if head_name == "head1":
@@ -263,12 +261,17 @@ class YoloreoValidator(DetectionValidator):
         """Prints training/validation set metrics per class."""
         LOGGER.info(f"HEAD {head}")
 
-        if head == "head1":
-            pf = '%22s' + '%11i' * 2 + '%11.3g' * len(self.metrics_head_1.keys)  # print format
-        elif head == "head2":
-            pf = '%22s' + '%11i' * 2 + '%11.3g' * len(self.metrics_head_2.keys)  # print format
+        pf = '%22s' + '%11i' * 2 + '%11.3g' * len(self.metrics_head_1.keys)  # print format
 
         if head == "head1":
             LOGGER.info(pf % ('all', self.seen, self.nt_per_class.sum(), *self.metrics_head_1.mean_results()))
         elif head == "head2":
             LOGGER.info(pf % ('all', self.seen, self.nt_per_class.sum(), *self.metrics_head_2.mean_results()))
+
+
+        if self.args.plots:
+            for normalize in True, False:
+                self.confusion_matrix.plot(save_dir=self.save_dir,
+                                           names=self.names.values(),
+                                           normalize=normalize,
+                                           on_plot=self.on_plot)

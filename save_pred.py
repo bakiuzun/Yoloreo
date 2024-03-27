@@ -14,7 +14,7 @@ BASE_PATH = "/share/projects/cicero/checkpoints_baki/"
 
 model_config = {
     "arch": "yolov8.yaml",
-    "checkpoint":BASE_PATH+"weights_1/best.pt"
+    "checkpoint":BASE_PATH+"weights_17/best.pt"
 }
 
 device  = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -30,15 +30,5 @@ for k, v in model.named_parameters():v.requires_grad = False
 model.to(device)
 
 
-detector = YoloreoPredictor(csv_path="csv/image_valid_split.csv",model=model)
-detector.predict(save_res=False,create_shape_file=True)
-
-"""
-import pandas as pd
-ddf = pd.read_csv("csv/image_valid_split2.csv")
-
-for i in range(425,len(ddf)):
-    path = ddf.iloc[i]["patch1"]
-    save_image_using_label(path,image_to_label_path(path),f"test{i}.png")
-
-"""
+detector = YoloreoPredictor(csv_path="pred_test_2_img_without_annot_0.csv",model=model,conf=0.50)
+detector.predict(save_res=True,create_shape_file=True)
