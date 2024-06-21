@@ -29,6 +29,16 @@ from validator import YoloreoValidator
 from ultralytics.utils import (DEFAULT_CFG, LOGGER, RANK, TQDM, __version__, callbacks, clean_url, colorstr, emojis)
 from datetime import datetime
 from ultralytics.engine.trainer import BaseTrainer
+from ultralytics.utils.torch_utils import (EarlyStopping, ModelEMA, de_parallel, init_seeds, one_cycle, select_device,
+                                           strip_optimizer)
+
+import wandb as wb
+
+seed = 43
+torch.manual_seed(seed)
+torch.cuda.manual_seed(seed)
+torch.backends.cudnn.deterministic = True
+
 
 
 class YoloreoTrainer(BaseTrainer):
@@ -39,6 +49,9 @@ class YoloreoTrainer(BaseTrainer):
         """
         self.args = get_cfg(cfg, overrides)
 
+        wb.init(project=self.args.project or 'DENEME', name=self.args.name)#, config=vars(self.args))
+        self.update_args()
+
         self.device  = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.init_save_dirs()
@@ -48,9 +61,8 @@ class YoloreoTrainer(BaseTrainer):
         self.model.to(self.device)
         self.model.args = self.args
 
-
-        self.train_dataset = CliffDataset(path=train_path)
-        self.validation_dataset = CliffDataset(path=valid_path)
+        self.train_dataset = CliffDataset(path=train_path,mode="train")
+        self.validation_dataset = CliffDataset(path=valid_path,mode="val")
 
         self.validator = None # class Validator
 
@@ -94,11 +106,21 @@ class YoloreoTrainer(BaseTrainer):
         self.callbacks = callbacks.get_default_callbacks()
         callbacks.add_integration_callbacks(self)
 
-        wb.run or wb.init(project=self.args.project or 'TEST', name=self.args.name, config=vars(self.args))
-        wb.config.batch_size = self.batch_size
-
         self.loss_names = ['Loss']
 
+    def update_args(self):
+        self.args.nbs = wb.config.batch
+        self.args.batch = wb.config.batch
+        self.args.lr0 = wb.config.lrdebut
+        self.args.lrf = wb.config.lrf
+        self.args.momentum = wb.config.momentum
+        self.args.warmup_epochs = wb.config.warmup_epochs
+        self.args.warmup_momentum = wb.config.warmup_momentum
+        self.args.warmup_decay = wb.config.warmup_decay
+        self.args.box = wb.config.box
+        self.args.cls = wb.config.cls
+        self.args.dfl = wb.config.dfl
+        self.args.optimizer = wb.config.optimizer
 
     def init_save_dirs(self):
         """
@@ -125,7 +147,6 @@ class YoloreoTrainer(BaseTrainer):
 
         self.last, self.best = self.wdir / 'last.pt', self.wdir / 'best.pt'  # checkpoint paths
 
-        current_date = datetime.now().strftime("%d_%H-%M-%S")
         self.csv = self.wdir / "result.csv"
 
     def train(self):
@@ -213,9 +234,11 @@ class YoloreoTrainer(BaseTrainer):
         nw = max(round(self.args.warmup_epochs * nb), 100) if self.args.warmup_epochs > 0 else -1  # warmup iterations
         last_opt_step = -1
         train_start = time.time()
+        self.run_callbacks('on_train_start')
         epoch = self.epochs  # predefine for resume fully trained model edge cases
         for epoch in range(self.start_epoch, self.epochs):
             self.epoch = epoch
+            self.run_callbacks('on_train_epoch_start')
             self.model.train()
 
             pbar = TQDM(enumerate(self.train_loader), total=nb)
@@ -226,7 +249,7 @@ class YoloreoTrainer(BaseTrainer):
 
             self.optimizer.zero_grad()
             for i, batch in pbar:
-
+                self.run_callbacks('on_train_batch_start')
                 # Warmup
                 ni = i + nb * epoch
                 if ni <= nw:
@@ -242,13 +265,11 @@ class YoloreoTrainer(BaseTrainer):
                 # Forward
                 # amp.autocast used to perform operation with float16
                 with torch.cuda.amp.autocast(self.amp):
+                    
+                    patch_1_annotation,patch_2_annotation,batch = self.train_dataset.retrieve_annotation(batch,self.device)
 
-                    batch['img'] = batch['img'].to(self.device, non_blocking=True).float() / 255
-
-                    features = self.model(batch["img"].to(self.device))
-
-                    # we get the labels here by using the img files stored in the batch
-                    patch_1_annotation,patch_2_annotation = self.train_dataset.retrieve_annotation(batch,self.device)
+                    batch['img'] = batch['img'].to(self.device, non_blocking=True).float() / 255                    
+                    features = self.model(batch["img"])
 
                     ## only used to print the cls for the current batch
                     batch['cls'] = torch.cat((patch_1_annotation['cls'], patch_2_annotation['cls']))
@@ -265,7 +286,6 @@ class YoloreoTrainer(BaseTrainer):
                         else self.loss_items_head_2
 
                     self.tloss =  (self.tloss_head_1 + self.tloss_head_2)  / 2
-
 
                 # Backward
                 self.scaler.scale((self.loss_head_1 + self.loss_head_2) / 2 ).backward()
@@ -284,7 +304,7 @@ class YoloreoTrainer(BaseTrainer):
                 pbar.set_description(
                        ('%11s' * 2 + '%11.4g' * (2 + loss_len)) %
                         (f'{epoch + 1}/{self.epochs}', mem, *losses, batch['cls'].shape[0], batch['img'].shape[-1]))
-
+                self.run_callbacks('on_batch_end')
             self.lr = {f'lr/pg{ir}': x['lr'] for ir, x in enumerate(self.optimizer.param_groups)}  # for loggers
 
             with warnings.catch_warnings():
@@ -318,6 +338,8 @@ class YoloreoTrainer(BaseTrainer):
         for i in self.metrics_head_1:
             metrics[i] = (self.metrics_head_1[i] + self.metrics_head_2[i]) / 2
         return metrics
+    
+
     def optimizer_step(self):
         """
         YOLO method
@@ -328,8 +350,6 @@ class YoloreoTrainer(BaseTrainer):
         self.scaler.step(self.optimizer)
         self.scaler.update()
         self.optimizer.zero_grad()
-
-
 
 
     def label_loss_items(self, loss_items=None, prefix='train'):

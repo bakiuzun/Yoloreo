@@ -124,10 +124,10 @@ class YoloreoPredictor(DetectionPredictor):
         bbox_x2 = []
         bbox_y2 = []
         for bbox in self.georef_poses:
-            bbox_y1.append(bbox[1])
             bbox_x1.append(bbox[0])
-            bbox_y2.append(bbox[2])
-            bbox_x2.append(bbox[3])
+            bbox_y1.append(bbox[1])
+            bbox_x2.append(bbox[2])
+            bbox_y2.append(bbox[3])
             polygons.append(Polygon([(bbox[0], bbox[1]), (bbox[2], bbox[1]),(bbox[2], bbox[3]), (bbox[0], bbox[3])]))
 
         if len(polygons) > 0:

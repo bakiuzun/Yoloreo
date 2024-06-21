@@ -24,11 +24,9 @@ model = Yoloreo(cfg=model_config["arch"])
 model.load_pretrained_weights(model_config["checkpoint"])
 model.nc = 1
 model.names = {0:'erosion'}
-
 for k, v in model.named_parameters():v.requires_grad = False
-
 model.to(device)
 
-
+# detector
 detector = YoloreoPredictor(csv_path="pred_test_2_img_without_annot_0.csv",model=model,conf=0.50)
 detector.predict(save_res=True,create_shape_file=True)

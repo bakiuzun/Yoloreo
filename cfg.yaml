@@ -1,4 +1,4 @@
-epochs: 250 # (int) number of epochs to train for
+epochs: 50 # (int) number of epochs to train for
 patience: 50 # (int) epochs to wait for no observable improvement for early stopping of training
 batch: 16 # (int) number of images per batch (-1 for AutoBatch)
 imgsz: 640 # (int | list) input images size as int for train and val modes, or list[w,h] for predict and export modes
@@ -9,8 +9,10 @@ workers: 8 # (int) number of worker threads for data loading (per RANK if DDP)
 optimizer: auto # (str) optimizer to use, choices=[SGD, Adam, Adamax, AdamW, NAdam, RAdam, RMSProp, auto]
 verbose: True # (bool) whether to print verbose output
 seed: 0 # (int) random seed for reproducibility
+name:
+project: "Yolo"
 deterministic: True # (bool) whether to enable deterministic mode
-amp: False # (bool) Automatic Mixed Precision (AMP) training, choices=[True, False], True runs AMP check
+amp: True # (bool) Automatic Mixed Precision (AMP) training, choices=[True, False], True runs AMP check
 fraction: 1.0 # (float) dataset fraction to train on (default is 1.0, all images in train set)
 cos_lr: False # (bool) use cosine learning rate scheduler
 close_mosaic: 0 # (int) disable mosaic augmentation for final epochs (0 to disable)
@@ -27,6 +29,7 @@ half: False # (bool) use half precision (FP16)
 dnn: False # (bool) use OpenCV DNN for ONNX inference
 plots: False # (bool) save plots during train/val
 freeze: None
+profile: False  # (bool) profile ONNX and TensorRT speeds during training for loggers
 # Hyperparameters ------------------------------------------------------------------------------------------------------
 lr0: 0.01 # (float) initial learning rate (i.e. SGD=1E-2, Adam=1E-3)
 lrf: 0.01 # (float) final learning rate (lr0 * lrf)
@@ -41,7 +44,7 @@ dfl: 1.5 # (float) dfl loss gain
 pose: 12.0 # (float) pose loss gain
 kobj: 1.0 # (float) keypoint obj loss gain
 label_smoothing: 0.0 # (float) label smoothing (fraction)
-nbs: 64 # (int) nominal batch size
+nbs: 16 # (int) nominal batch size
 hsv_h: 0.0 # (float) image HSV-Hue augmentation (fraction)
 hsv_s: 0.0 # (float) image HSV-Saturation augmentation (fraction)
 hsv_v: 0.0 # (float) image HSV-Value augmentation (fraction)

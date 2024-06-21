@@ -50,20 +50,6 @@ class Yoloreo(BaseModel):
             self.info()
             LOGGER.info('')
 
-        ## OUR modification
-
-        # for cross attention
-        """
-        self.linear_query_p3 = torch.nn.Conv1d(192, 192, 1)
-        self.linear_key_p3 = torch.nn.Conv1d(192, 192, 1)
-        self.linear_value_p3 = torch.nn.Conv1d(192, 192, 1)
-        self.p3 = [self.linear_query_p3,self.linear_key_p3,self.linear_value_p3]
-
-        self.linear_query_p4 = torch.nn.Conv1d(384, 384, 1)
-        self.linear_key_p4 = torch.nn.Conv1d(384, 384, 1)
-        self.linear_value_p4 = torch.nn.Conv1d(384, 384, 1)
-        self.p4 = [self.linear_query_p4,self.linear_key_p4,self.linear_value_p4]
-        """
         self.linear_query_p5 = torch.nn.Conv1d(576, 576, 1)
         self.linear_key_p5 = torch.nn.Conv1d(576, 576, 1)
         self.linear_value_p5 = torch.nn.Conv1d(576, 576, 1)
@@ -212,4 +198,3 @@ class Yoloreo(BaseModel):
         self.load_state_dict(csd, strict=False)  # load
 
         LOGGER.info(f'Transferred {len(csd)}/{len(self.model.state_dict())} items from pretrained weights')
-

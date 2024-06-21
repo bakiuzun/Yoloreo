@@ -69,7 +69,6 @@ class YoloreoValidator(DetectionValidator):
             patch_1_annotation,patch_2_annotation = self.dataset.retrieve_annotation(batch,self.device)
             batch['img'] = batch['img'].to(self.device, non_blocking=True).float() / 255
 
-
             # Inference
             features = model(batch["img"])
             preds_head_1 = features["x_1"]
@@ -94,7 +93,7 @@ class YoloreoValidator(DetectionValidator):
 
         self.print_results(head="head1")
         self.print_results(head="head2")
-
+        self.finalize_metrics()
         model.float()
 
         results_head_1 = {**stats_head_1, **trainer.label_loss_items(self.loss_head_1.cpu() / len(self.dataloader), prefix='val')}

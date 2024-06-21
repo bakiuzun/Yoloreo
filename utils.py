@@ -19,6 +19,8 @@ import sys
 from ultralytics.models.yolo.detect import DetectionPredictor
 import sys
 from osgeo import gdal
+import random
+import albumentations as A
 
 
 BASE_LABEL_FILE_PATH = "/share/projects/cicero/objdet/dataset/CICERO_stereo/train_label/1_Varengeville_sur_Mer/"
@@ -26,6 +28,12 @@ BASE_IMG_FILE_PATH = "/share/projects/cicero/objdet/dataset/CICERO_stereo/images
 
 BASE_IMG_FILE_PATH = '/share/projects/cicero/objdet/dataset/CICERO_stereo/images/3_Zakynthos/'
 BASE_LABEL_FILE_PATH = "/share/projects/cicero/objdet/dataset/CICERO_stereo/train_label/3_Zakynthos/"
+
+seed = 42
+torch.manual_seed(seed)
+torch.cuda.manual_seed(seed)
+torch.backends.cudnn.deterministic = True
+random.seed(seed)
 
 
 def image_to_label_path(img_file,patch1=True):
@@ -82,6 +90,37 @@ def min_max_norm(img):
 
 
 def is_stereo(path):return path.split("/")[8].count("_") > 0
+
+
+def make_augmentation(image1,image2,bbox1,bbox2,aug):
+
+    if random.choice([0,1]) == 1:
+        class_labels_patch1 = ["erosion"] * len(bbox1)
+        class_labels_patch2 = ["erosion"] * len(bbox2)
+
+        horizontal = A.Compose([aug],bbox_params=A.BboxParams(format='yolo',label_fields=['class_labels']))
+        transformed_patch1 = horizontal(image=image1,bboxes=bbox1,class_labels=class_labels_patch1)  
+        bbox1 = transformed_patch1['bboxes']
+        image1 = transformed_patch1["image"]
+
+        transformed_patch2 = horizontal(image=image2,bboxes=bbox2,class_labels=class_labels_patch2)
+        bbox2 = transformed_patch2['bboxes']
+        image2 = transformed_patch2["image"]
+
+    return image1,image2,bbox1,bbox2
+
+
+def mixup_image(img1,img2):
+    """
+    mix two image and get one image as result
+    """
+    alpha = 0.1
+    lam =  np.random.beta(alpha,alpha)
+    mixed_image1 = lam * img1 + (1 - lam) * img2
+    mixed_image2 = lam * img2 + (1 - lam) * img1
+    transformed_image = (mixed_image1 + mixed_image2) / 2
+
+    return transformed_image
 
 
 def get_min_max_dataset(path):
@@ -222,9 +261,13 @@ def get_georeferenced_pos(path,x,y,patch1_stereo=False):
 
     #ident represent the base image of the patch
     extension = ".PNG"
+    patch_1_2 = ident
     if ident.count("_") > 0 and patch1_stereo:
         extension = "_res.PNG"
-    ident = BASE_IMG_FILE_PATH + ident + "/pair/" + ident + extension
+    elif ident.count("_") > 0 and patch1_stereo == False: 
+        patch_1_2 = ident.split("_")[1] + "_" + ident.split("_")[0]
+    
+    ident = BASE_IMG_FILE_PATH + ident + "/pair/" + patch_1_2 + extension
 
     return calculate(ident)
 
