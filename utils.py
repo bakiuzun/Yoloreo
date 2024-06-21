@@ -29,7 +29,7 @@ BASE_IMG_FILE_PATH = "/share/projects/cicero/objdet/dataset/CICERO_stereo/images
 BASE_IMG_FILE_PATH = '/share/projects/cicero/objdet/dataset/CICERO_stereo/images/3_Zakynthos/'
 BASE_LABEL_FILE_PATH = "/share/projects/cicero/objdet/dataset/CICERO_stereo/train_label/3_Zakynthos/"
 
-seed = 42
+seed = 43
 torch.manual_seed(seed)
 torch.cuda.manual_seed(seed)
 torch.backends.cudnn.deterministic = True
